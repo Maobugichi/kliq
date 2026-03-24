@@ -1,0 +1,44 @@
+import { Router } from "express";
+import {
+  create,
+  listMine,
+  getOne,
+  update,
+  publish,
+  unpublish,
+  remove,
+} from "../controllers/product.controller.js";
+import {
+  uploadFile,
+  listFiles,
+  removeFile,
+} from "../controllers/fileController.js";
+import { authenticateToken, authenticateOptional } from "../middleware/auth.middleware.js";
+import { requireActiveCreator } from "../middleware/creator.middleware.js";
+import { upload } from "../middleware/upload.middleware.js";
+
+const router = Router();
+
+// ─── Public ───────────────────────────────────────────────────────────────────
+router.get("/products/:productId", authenticateOptional, getOne);
+
+// ─── Creator — static routes BEFORE dynamic ──────────────────────────────────
+router.get("/products/me", authenticateToken, requireActiveCreator, listMine);
+router.post("/products", authenticateToken, requireActiveCreator, create);
+router.patch("/products/:productId", authenticateToken, requireActiveCreator, update);
+router.post("/products/:productId/publish", authenticateToken, requireActiveCreator, publish);
+router.post("/products/:productId/unpublish", authenticateToken, requireActiveCreator, unpublish);
+router.delete("/products/:productId", authenticateToken, requireActiveCreator, remove);
+
+// ─── File uploads ─────────────────────────────────────────────────────────────
+router.post(
+  "/products/:productId/files",
+  authenticateToken,
+  requireActiveCreator,
+  upload.single("file"),
+  uploadFile
+);
+router.get("/products/:productId/files", authenticateToken, requireActiveCreator, listFiles);
+router.delete("/products/:productId/files/:fileId", authenticateToken, requireActiveCreator, removeFile);
+
+export default router;

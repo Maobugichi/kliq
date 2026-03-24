@@ -1,5 +1,5 @@
 import pool from "../config/db.js";
-import { uploadFileToCloudinary } from "../utils/cloudinary.util.js";
+import { uploadFileToCloudinary, type UploadableFile } from "../utils/cloudinary.util.js";
 import { getFileCategory } from "../middleware/upload.middleware.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -16,12 +16,7 @@ export interface ProductFile {
   created_at: Date;
 }
 
-interface UploadableFile {
-  path: string;
-  originalname?: string;
-  mimetype?: string;
-  [key: string]: any;
-}
+
 
 // ─── Service ──────────────────────────────────────────────────────────────────
 

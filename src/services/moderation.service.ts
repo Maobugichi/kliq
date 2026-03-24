@@ -1,7 +1,7 @@
 import pool from "../config/db.js";
 import cloudinary from "../config/cloudinary.js";
 import type { Product } from "./product.service.js";
-import type { ProductFile } from "./file.service.js";
+import type { ProductFile } from "./productFile.service.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

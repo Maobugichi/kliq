@@ -4,14 +4,14 @@ import { redeemAccessToken } from "../services/access-token.service.js";
 // GET /download/:token
 export const downloadFile = async (req: Request, res: Response) => {
   try {
-    const { token } = req.params;
+    const token = req.params["token"] as string;
 
     if (!token) {
       return res.status(400).json({ success: false, message: "Token is required" });
     }
 
     const ipAddress =
-      (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() ??
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
       req.socket.remoteAddress ??
       undefined;
 

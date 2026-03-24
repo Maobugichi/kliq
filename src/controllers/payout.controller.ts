@@ -126,7 +126,7 @@ export const listAllPayouts = async (req: Request, res: Response) => {
 // POST /admin/payouts/:payoutId/process — admin triggers the Paystack transfer
 export const processPayoutController = async (req: Request, res: Response) => {
   try {
-    const { payoutId } = req.params;
+    const payoutId = req.params["payoutId"] as string;
 
     if (!payoutId) {
       return res.status(400).json({ success: false, message: "payoutId is required" });

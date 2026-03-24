@@ -28,11 +28,11 @@ export const create = async (req: Request, res: Response) => {
     }
 
     const product = await createProduct({
-      creator_id: creatorId,
-      title,
-      description,
-      price_cents,
-      thumbnail,
+        creator_id: creatorId,
+        title,
+        price_cents,
+        ...(description !== undefined && { description }),
+        ...(thumbnail !== undefined && { thumbnail }),
     });
 
     return res.status(201).json({ success: true, data: product });
@@ -61,7 +61,7 @@ export const listMine = async (req: Request, res: Response) => {
 // GET /products/:productId
 export const getOne = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params["productId"] as string;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "productId is required" });
@@ -90,7 +90,7 @@ export const getOne = async (req: Request, res: Response) => {
 // PATCH /products/:productId
 export const update = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params["productId"] as string;
     const creatorId = req.user!.id;
 
     if (!productId) {
@@ -117,7 +117,7 @@ export const update = async (req: Request, res: Response) => {
 // POST /products/:productId/publish
 export const publish = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params["productId"] as string;
     const creatorId = req.user!.id;
 
     if (!productId) {
@@ -150,7 +150,7 @@ export const publish = async (req: Request, res: Response) => {
 // POST /products/:productId/unpublish
 export const unpublish = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params["productId"] as string;
     const creatorId = req.user!.id;
 
     if (!productId) {
@@ -175,7 +175,7 @@ export const unpublish = async (req: Request, res: Response) => {
 // DELETE /products/:productId
 export const remove = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params["productId"] as string;
     const creatorId = req.user!.id;
 
     if (!productId) {

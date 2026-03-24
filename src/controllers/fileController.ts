@@ -3,7 +3,7 @@ import {
   attachFileToProduct,
   getProductFiles,
   deleteProductFile,
-} from "../services/file.service.js";
+} from "../services/productFile.service.js";
 import type { UploadableFile } from "../utils/cloudinary.util.js";
 import pool from "../config/db.js";
 
@@ -11,7 +11,7 @@ import pool from "../config/db.js";
 // Multer puts the uploaded file on req.file
 export const uploadFile = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params["productId"] as string;
     const creatorId = req.user!.id;
 
     if (!productId) {
@@ -47,7 +47,7 @@ export const uploadFile = async (req: Request, res: Response) => {
 // GET /products/:productId/files
 export const listFiles = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+   const productId = req.params["productId"] as string;
     const creatorId = req.user!.id;
 
     if (!productId) {
@@ -79,7 +79,8 @@ export const listFiles = async (req: Request, res: Response) => {
 // DELETE /products/:productId/files/:fileId
 export const removeFile = async (req: Request, res: Response) => {
   try {
-    const { productId, fileId } = req.params;
+    const productId = req.params["productId"] as string;
+    const fileId = req.params["fileId"] as string;
     const creatorId = req.user!.id;
 
     if (!productId || !fileId) {

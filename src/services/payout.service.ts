@@ -1,4 +1,5 @@
 import pool from "../config/db.js";
+import { getPlatformFee } from "./config.service.js";
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY as string;
 const PAYSTACK_BASE = "https://api.paystack.co";

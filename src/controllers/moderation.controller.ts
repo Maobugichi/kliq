@@ -24,7 +24,7 @@ export const listFlagged = async (req: Request, res: Response) => {
 
 export const flag = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params["productId"] as string;
     const adminId = req.user!.id;
     const { reason } = req.body as { reason?: string };
 
@@ -54,7 +54,7 @@ export const flag = async (req: Request, res: Response) => {
 // POST /admin/products/:productId/unflag
 export const unflag = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params["productId"] as string;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "productId is required" });
@@ -78,7 +78,7 @@ export const unflag = async (req: Request, res: Response) => {
 // DELETE /admin/products/:productId
 export const forceDelete = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
+    const productId = req.params["productId"] as string;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "productId is required" });

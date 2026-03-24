@@ -76,7 +76,7 @@ export const updateMyProfile = async (req: Request, res: Response) => {
 
 export const getStorefront = async (req: Request, res: Response) => {
   try {
-    const { slug } = req.params;
+    const slug = req.params["slug"] as string;
 
     if (!slug) {
         return res.status(400).json({ success: false, message: "Store slug is required" });

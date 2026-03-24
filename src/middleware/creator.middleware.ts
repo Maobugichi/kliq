@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { findCreatorByUserId } from "../services/creator.services.js";
+import { findCreatorByUserId } from "../services/creator.service.js";
 import { CreatorStatus } from "../types.ts/creator.types.js";
 
 export const requireActiveCreator = async (

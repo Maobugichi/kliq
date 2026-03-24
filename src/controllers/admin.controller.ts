@@ -7,7 +7,7 @@ import {
   revokeOrder,
 } from "../services/admin.service.js";
 
-// GET /admin/creators?status=pending
+
 export const listCreators = async (req: Request, res: Response) => {
   try {
     const { status } = req.query;
@@ -27,10 +27,10 @@ export const listCreators = async (req: Request, res: Response) => {
   }
 };
 
-// POST /admin/creators/:userId/approve
+
 export const approveCreatorController = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.params;
+    const userId = req.params["userId"] as string;
 
     if (!userId) {
         return res.status(400).json({success:false, message:'userId required'})
@@ -58,7 +58,7 @@ export const approveCreatorController = async (req: Request, res: Response) => {
 // POST /admin/creators/:userId/reject
 export const rejectCreatorController = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.params;
+    const userId = req.params["userId"] as string;
     const { reason } = req.body as { reason?: string };
 
     if (!reason) {
@@ -83,11 +83,8 @@ export const rejectCreatorController = async (req: Request, res: Response) => {
 // POST /admin/creators/:userId/suspend
 export const suspendCreatorController = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.params;
+    const userId = req.params["userId"] as string;
     const { reason } = req.body as { reason?: string };
-
-   
-
 
     if (!reason) {
       return res.status(400).json({ success: false, message: "Suspension reason is required" });
@@ -115,7 +112,7 @@ export const suspendCreatorController = async (req: Request, res: Response) => {
 // POST /admin/orders/:orderId/revoke
 export const revokeOrderController = async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.params;
+    const orderId = req.params["orderId"] as string;
     await revokeOrder(orderId);
 
     return res.status(200).json({
