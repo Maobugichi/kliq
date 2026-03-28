@@ -10,13 +10,22 @@ export const initiate = async (req: Request, res: Response) => {
   try {
     const buyerId = req.user!.id;
     const email = req.user!.email;
-    const { product_id } = req.body as { product_id: string };
+    const { product_id, coupon_code } = req.body as {
+      product_id: string;
+      coupon_code?: string;
+    };
+
 
     if (!product_id) {
       return res.status(400).json({ success: false, message: "product_id is required" });
     }
 
-    const result = await initiatePayment({ buyerId, productId: product_id, email });
+    const result = await initiatePayment({
+      buyerId,
+      productId: product_id,
+      email,
+      ...(coupon_code !== undefined && { couponCode: coupon_code }),
+    });
 
     return res.status(200).json({
       success: true,

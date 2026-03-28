@@ -2,6 +2,7 @@ import crypto from "crypto";
 import pool from "../config/db.js";
 import { generateAccessToken } from "./access-token.service.js";
 import { sendDownloadEmail } from "../utils/mailer.util.js";
+import { applyCoupon, incrementCouponUsage } from "./coupon.service.js";
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY as string;
 const PAYSTACK_BASE = "https://api.paystack.co";
@@ -24,12 +25,16 @@ interface InitiatePaymentInput {
   buyerId: string;
   productId: string;
   email: string;
+  couponCode?: string;
 }
 
 export interface InitiatePaymentResult {
   paymentUrl: string | null;
   ref: string;
   free: boolean;
+  originalPriceCents?: number;
+  discountCents?: number;
+  finalPriceCents?: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -59,14 +64,16 @@ export const initiatePayment = async ({
   buyerId,
   productId,
   email,
+  couponCode,
 }: InitiatePaymentInput): Promise<InitiatePaymentResult> => {
   const { rows: [product] } = await pool.query<{
     id: string;
     price_cents: number;
     status: string;
     title: string;
+    creator_id: string;
   }>(
-    `SELECT id, price_cents, status, title FROM products WHERE id = $1`,
+    `SELECT id, price_cents, status, title, creator_id FROM products WHERE id = $1`,
     [productId]
   );
 
@@ -81,10 +88,26 @@ export const initiatePayment = async ({
 
   if (existingOrder) throw new Error("You already own this product");
 
+  // ── Apply coupon if provided ───────────────────────────────────────────────
+  let finalPriceCents = product.price_cents;
+  let discountCents = 0;
+  let couponId: string | null = null;
+
+  if (couponCode && product.price_cents > 0) {
+    const couponResult = await applyCoupon(
+      couponCode,
+      product.creator_id,
+      product.price_cents
+    );
+    finalPriceCents = couponResult.final_price_cents;
+    discountCents = couponResult.discount_cents;
+    couponId = couponResult.coupon_id;
+  }
+
   const ref = `cl-${buyerId.slice(0, 8)}-${Date.now()}`;
 
-  // ── Free product — skip Paystack, grant access immediately ────────────────
-  if (product.price_cents === 0) {
+  // ── Free product (or 100% coupon) — skip Paystack ─────────────────────────
+  if (finalPriceCents === 0) {
     await pool.query("BEGIN");
     try {
       const { rows: [order] } = await pool.query<{ id: string }>(
@@ -105,34 +128,60 @@ export const initiatePayment = async ({
 
       await sendDownloadEmail(email, buyer?.name ?? "there", product.title, rawToken);
 
+      // Increment coupon usage if applied
+      if (couponId) await incrementCouponUsage(couponId);
+
       await pool.query("COMMIT");
     } catch (err) {
       await pool.query("ROLLBACK");
       throw err;
     }
 
-    return { paymentUrl: null, ref, free: true };
+    return {
+      paymentUrl: null,
+      ref,
+      free: true,
+      originalPriceCents: product.price_cents,
+      discountCents,
+      finalPriceCents: 0,
+    };
   }
 
-  // ── Paid product — create pending order + Paystack checkout ──────────────
+  // ── Paid product — create pending order + Paystack checkout ───────────────
   await pool.query(
     `INSERT INTO orders (buyer_id, product_id, amount_cents, paystack_ref, status)
      VALUES ($1, $2, $3, $4, 'pending')`,
-    [buyerId, productId, product.price_cents, ref]
+    [buyerId, productId, finalPriceCents, ref]
   );
 
   const data = await paystackRequest("POST", "/transaction/initialize", {
     email,
-    amount: product.price_cents,
+    amount: finalPriceCents,
     reference: ref,
     metadata: {
       buyer_id: buyerId,
       product_id: productId,
       product_title: product.title,
+      coupon_id: couponId ?? undefined,
     },
   });
 
-  return { paymentUrl: data.data.authorization_url, ref, free: false };
+  // Store coupon_id in orders so webhook can increment usage on success
+  if (couponId) {
+    await pool.query(
+      `UPDATE orders SET coupon_id = $1 WHERE paystack_ref = $2`,
+      [couponId, ref]
+    );
+  }
+
+  return {
+    paymentUrl: data.data.authorization_url,
+    ref,
+    free: false,
+    originalPriceCents: product.price_cents,
+    discountCents,
+    finalPriceCents,
+  };
 };
 
 // ─── Verify webhook signature ─────────────────────────────────────────────────
@@ -158,7 +207,7 @@ export const handlePaystackWebhook = async (
 
   const ref = data.reference as string;
 
-  const { rows: [order] } = await pool.query<Order>(
+  const { rows: [order] } = await pool.query<Order & { coupon_id: string | null }>(
     `SELECT * FROM orders WHERE paystack_ref = $1 AND status = 'pending'`,
     [ref]
   );
@@ -191,6 +240,11 @@ export const handlePaystackWebhook = async (
 
     if (buyer && product) {
       await sendDownloadEmail(buyer.email, buyer.name, product.title, rawToken);
+    }
+
+    // Increment coupon usage if one was applied
+    if (order.coupon_id) {
+      await incrementCouponUsage(order.coupon_id);
     }
 
     await pool.query("COMMIT");

@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { redeemAccessToken } from "../services/access-token.service.js";
 
-// GET /download/:token
+
 export const downloadFile = async (req: Request, res: Response) => {
   try {
     const token = req.params["token"] as string;
@@ -17,9 +17,15 @@ export const downloadFile = async (req: Request, res: Response) => {
 
     const userAgent = req.headers["user-agent"] ?? undefined;
 
-    const { signedUrl } = await redeemAccessToken(token, ipAddress, userAgent);
+    const { downloads } = await redeemAccessToken(token, ipAddress, userAgent);
 
-    return res.redirect(signedUrl);
+    if (downloads.length === 1){
+      return res.redirect(downloads[0]!.url);
+    }
+    return res.status(200).json({
+      success:true,
+      data:downloads
+    });
   } catch (err) {
     if (err instanceof Error) {
       const clientErrors = [

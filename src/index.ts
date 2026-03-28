@@ -1,22 +1,26 @@
+import "dotenv/config";
 import express from "express";
-import authRouter from "./routes/auth.routes.js";
+import authRouter from "./routes/auth.route.js";
 import creatorRouter from "./routes/creator.routes.js";
-import productRouter from "./routes/product.routes.js";
-import paymentRouter from "./routes/payment.routes.js";
+import productRouter from "./routes/products.route.js";
+import paymentRouter from "./routes/payment.route.js";
 import downloadRouter from "./routes/download.routes.js";
-import payoutRouter from "./routes/payouts.routes.js";
-import dashboardRouter from "./routes/dashboard.route.js";
-import adminRouter from "./routes/admin.route.js";
+import payoutRouter from "./routes/payout.routes.js";
+import dashboardRouter from "./routes/dashboard.routes.js";
+import adminRouter from "./routes/admin.routes.js";
+import buyerRouter from "./routes/buyer.routes.js";
+import couponRouter from "./routes/coupon.routes.js";
+import buyerRouter from "./routes/buyer.routes.js";
+
 
 const app = express();
 
-// Webhook must receive raw Buffer — BEFORE express.json()
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 
-// JSON middleware for all other routes
+
 app.use(express.json());
 
-// Routes
+
 app.use("/api", authRouter);
 app.use("/api", creatorRouter);
 app.use("/api", productRouter);
@@ -25,10 +29,13 @@ app.use("/api", downloadRouter);
 app.use("/api", payoutRouter);
 app.use("/api", dashboardRouter);
 app.use("/api", adminRouter);
+app.use("/api", buyerRouter);
+app.use("/api", couponRouter);
+app.use("/api", buyerRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 CreatorLock server running on port ${PORT}`);
+  console.log(`kliq server running on port ${PORT}`);
 });
 
 export default app;

@@ -45,7 +45,7 @@ export const redeemAccessToken = async (
   rawToken: string,
   ipAddress?: string,
   userAgent?: string
-): Promise<{ signedUrl: string; filename: string | null }> => {
+): Promise<{downloads: { filename: string | null; url:string }[]}> => {
   const { rows } = await pool.query<AccessToken>(
     `SELECT * FROM access_tokens
      WHERE revoked = false AND expires_at > NOW()`
@@ -67,8 +67,8 @@ export const redeemAccessToken = async (
     throw new Error("Download limit reached for this purchase");
   }
 
-  // Get the product file
-  const { rows: [file] } = await pool.query<{
+
+  const { rows: files } = await pool.query<{
     public_id: string;
     original_name: string | null;
     format: string | null;
@@ -81,9 +81,9 @@ export const redeemAccessToken = async (
     [matched.product_id]
   );
 
-  if (!file) throw new Error("Product file not found");
+  if (!files.length) throw new Error("Product file not found");
 
-  // Increment download count + write audit log — both in one transaction
+ 
   await pool.query("BEGIN");
   try {
     await pool.query(
@@ -112,15 +112,18 @@ export const redeemAccessToken = async (
     throw err;
   }
 
-  // Generate signed Cloudinary URL — expires in 10 minutes
-  const signedUrl = cloudinary.url(file.public_id, {
-    secure: true,
-    sign_url: true,
-    expires_at: Math.floor(Date.now() / 1000) + 10 * 60,
-    resource_type: "auto",
+  
+  const downloads = files.map((file) => {
+    filename:file.original_name,
+    url:cloudinary.url(file.public_id, {
+      secure:true,
+      sign_url:true,
+      expires_at:Math.floor(Date.now() / 1000) = 10 * 60,
+      resource_type:'auto'
+    })
   });
 
-  return { signedUrl, filename: file.original_name };
+  return { downloads } 
 };
 
 // ─── Revoke ───────────────────────────────────────────────────────────────────
