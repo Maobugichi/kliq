@@ -1,8 +1,10 @@
+import { resolveAffiliateCode, recordAffiliateConversion } from "./affiliate.service.js";
 import crypto from "crypto";
 import pool from "../config/db.js";
 import { generateAccessToken } from "./access-token.service.js";
 import { sendDownloadEmail } from "../utils/mailer.util.js";
 import { applyCoupon, incrementCouponUsage } from "./coupon.service.js";
+import { notifyNewSale } from "./notification.service.js";
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY as string;
 const PAYSTACK_BASE = "https://api.paystack.co";
@@ -26,6 +28,7 @@ interface InitiatePaymentInput {
   productId: string;
   email: string;
   couponCode?: string;
+  affiliateCode?: string;
 }
 
 export interface InitiatePaymentResult {
@@ -65,6 +68,7 @@ export const initiatePayment = async ({
   productId,
   email,
   couponCode,
+  affiliateCode
 }: InitiatePaymentInput): Promise<InitiatePaymentResult> => {
   const { rows: [product] } = await pool.query<{
     id: string;
@@ -149,9 +153,9 @@ export const initiatePayment = async ({
 
   // ── Paid product — create pending order + Paystack checkout ───────────────
   await pool.query(
-    `INSERT INTO orders (buyer_id, product_id, amount_cents, paystack_ref, status)
+    `INSERT INTO orders (buyer_id, product_id, amount_cents, paystack_ref, status,affiliate_code)
      VALUES ($1, $2, $3, $4, 'pending')`,
-    [buyerId, productId, finalPriceCents, ref]
+    [buyerId, productId, finalPriceCents, ref, affiliateCode ?? null]
   );
 
   const data = await paystackRequest("POST", "/transaction/initialize", {
@@ -206,8 +210,11 @@ export const handlePaystackWebhook = async (
   if (event !== "charge.success") return;
 
   const ref = data.reference as string;
+  
 
-  const { rows: [order] } = await pool.query<Order & { coupon_id: string | null }>(
+  const { rows: [order] } = await pool.query<Order & {  
+    coupon_id: string | null;
+    affiliate_code: string | null; }>(
     `SELECT * FROM orders WHERE paystack_ref = $1 AND status = 'pending'`,
     [ref]
   );
@@ -219,8 +226,8 @@ export const handlePaystackWebhook = async (
     [order.buyer_id]
   );
 
-  const { rows: [product] } = await pool.query<{ title: string }>(
-    `SELECT title FROM products WHERE id = $1`,
+  const { rows: [product] } = await pool.query<{ title: string; creator_id:string; }>(
+    `SELECT  title, creator_id, FROM products WHERE id = $1`,
     [order.product_id]
   );
 
@@ -240,7 +247,19 @@ export const handlePaystackWebhook = async (
 
     if (buyer && product) {
       await sendDownloadEmail(buyer.email, buyer.name, product.title, rawToken);
+
+      await notifyNewSale(
+        product.creator_id,
+        product.title,
+        order.amount_cents,
+        buyer.name
+      );
     }
+   
+    if (order.affiliate_code) {
+      await recordAffiliateConversion(order.affiliate_code, order.id, order.amount_cents);
+    }
+
 
     // Increment coupon usage if one was applied
     if (order.coupon_id) {

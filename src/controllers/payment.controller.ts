@@ -10,9 +10,10 @@ export const initiate = async (req: Request, res: Response) => {
   try {
     const buyerId = req.user!.id;
     const email = req.user!.email;
-    const { product_id, coupon_code } = req.body as {
+    const { product_id, coupon_code, affiliate_code } = req.body as {
       product_id: string;
       coupon_code?: string;
+      affiliate_code?:string;
     };
 
 
@@ -25,6 +26,7 @@ export const initiate = async (req: Request, res: Response) => {
       productId: product_id,
       email,
       ...(coupon_code !== undefined && { couponCode: coupon_code }),
+      ...(affiliate_code !== undefined && { affiliateCode: affiliate_code })
     });
 
     return res.status(200).json({

@@ -1,6 +1,6 @@
 import pool from "../config/db.js";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+
 
 export interface SalesSummary {
   total_revenue_cents: number;

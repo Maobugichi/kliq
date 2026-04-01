@@ -8,9 +8,12 @@ import downloadRouter from "./routes/download.routes.js";
 import payoutRouter from "./routes/payout.routes.js";
 import dashboardRouter from "./routes/dashboard.routes.js";
 import adminRouter from "./routes/admin.routes.js";
-import buyerRouter from "./routes/buyer.routes.js";
-import couponRouter from "./routes/coupon.routes.js";
-import buyerRouter from "./routes/buyer.routes.js";
+import buyerRouter from "./routes/buyer.route.js";
+import couponRouter from "./routes/coupon.route.js";
+import affiliateRouter from "./routes/affiliate.route.js";
+import notificationRouter from "./routes/notification.route.js";
+import emailListRouter from "./routes/emailList.routes.js";
+
 
 
 const app = express();
@@ -32,6 +35,10 @@ app.use("/api", adminRouter);
 app.use("/api", buyerRouter);
 app.use("/api", couponRouter);
 app.use("/api", buyerRouter);
+app.use("/api", affiliateRouter);
+app.use("/api", notificationRouter);
+
+app.use("/api", emailListRouter);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
