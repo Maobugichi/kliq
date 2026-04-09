@@ -13,14 +13,13 @@ import { authenticateToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
-// ─── Signup / Login / Logout ──────────────────────────────────────────────────
 router.post("/auth/signup", signup);
 router.post("/auth/login", login);
 router.post("/auth/logout", logout);
 router.post("/auth/logout-all", authenticateToken, logoutAllController);
 router.post("/auth/refresh", refreshToken);
 
-// ─── Email verification ───────────────────────────────────────────────────────
+
 router.post("/auth/verify-email/send", authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id, email } = req.user!;
@@ -47,7 +46,7 @@ router.post("/auth/verify-email/confirm", async (req: Request, res: Response) =>
   }
 });
 
-// ─── Password reset ───────────────────────────────────────────────────────────
+
 router.post("/auth/forgot-password", async (req: Request, res: Response) => {
   try {
     const email = req.body.email as string | undefined;
