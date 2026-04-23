@@ -11,7 +11,7 @@ import {
   type UpdateProductInput,
 } from "../services/product.service.js";
 
-// POST /products
+
 export const create = async (req: Request, res: Response) => {
   try {
     const creatorId = req.user!.id;

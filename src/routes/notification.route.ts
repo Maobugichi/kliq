@@ -4,10 +4,9 @@ import { authenticateToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
-// All notification routes require authentication
+
 router.use(authenticateToken);
 
-// Static routes before dynamic
 router.get("/notifications/unread-count", unreadCount);
 router.patch("/notifications/read-all", readAll);
 router.get("/notifications", list);

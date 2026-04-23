@@ -4,7 +4,6 @@ import { authenticateToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
-
 router.post(
   "/payments/webhook",
   webhook

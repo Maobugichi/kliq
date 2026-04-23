@@ -5,7 +5,7 @@ import { getBuyerLibrary, resendDownloadEmail } from '../services/buyer.service.
 export const getLibrary = async(req:Request,res:Response) => {
     try {
         const buyerId = req.user!.id;
-        const library = getBuyerLibrary(buyerId);
+        const library = await getBuyerLibrary(buyerId);
 
         return res.status(200).json({
             success:true,
@@ -25,7 +25,7 @@ export const resendDownload = async (req:Request, res:Response) => {
         const orderId = req.params['orderId'] as string;
 
         if (!orderId) {
-            returnres.status(400).json({
+            return res.status(400).json({
                 success:false,
                 message:'orderId is required'
             });

@@ -7,8 +7,7 @@ import {
 import type { UploadableFile } from "../utils/cloudinary.util.js";
 import pool from "../config/db.js";
 
-// POST /products/:productId/files
-// Multer puts the uploaded file on req.file
+
 export const uploadFile = async (req: Request, res: Response) => {
   try {
     const productId = req.params["productId"] as string;
@@ -22,7 +21,7 @@ export const uploadFile = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "No file uploaded" });
     }
 
-    // Verify the product belongs to this creator
+    
     const { rows: [product] } = await pool.query<{ id: string }>(
       `SELECT id FROM products WHERE id = $1 AND creator_id = $2 AND status != 'deleted'`,
       [productId, creatorId]

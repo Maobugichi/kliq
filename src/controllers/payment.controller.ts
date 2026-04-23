@@ -5,7 +5,6 @@ import {
   handlePaystackWebhook,
 } from "../services/payment.service.js";
 
-// POST /payments/initiate
 export const initiate = async (req: Request, res: Response) => {
   try {
     const buyerId = req.user!.id;

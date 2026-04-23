@@ -19,10 +19,10 @@ import { upload } from "../middleware/upload.middleware.js";
 
 const router = Router();
 
-// ─── Public ───────────────────────────────────────────────────────────────────
+
 router.get("/products/:productId", authenticateOptional, getOne);
 
-// ─── Creator — static routes BEFORE dynamic ──────────────────────────────────
+
 router.get("/products/me", authenticateToken, requireActiveCreator, listMine);
 router.post("/products", authenticateToken, requireActiveCreator, create);
 router.patch("/products/:productId", authenticateToken, requireActiveCreator, update);

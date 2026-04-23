@@ -9,7 +9,7 @@ import { notifyNewSale } from "./notification.service.js";
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY as string;
 const PAYSTACK_BASE = "https://api.paystack.co";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+
 
 export interface Order {
   id: string;
@@ -40,7 +40,7 @@ export interface InitiatePaymentResult {
   finalPriceCents?: number;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 const paystackRequest = async (
   method: "GET" | "POST",
@@ -61,7 +61,7 @@ const paystackRequest = async (
   return data;
 };
 
-// ─── Initiate payment ─────────────────────────────────────────────────────────
+
 
 export const initiatePayment = async ({
   buyerId,

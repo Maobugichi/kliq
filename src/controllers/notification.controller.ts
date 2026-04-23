@@ -6,7 +6,7 @@ import {
   getUnreadCount,
 } from "../services/notification.service.js";
 
-// GET /notifications?unread=true
+
 export const list = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -25,7 +25,7 @@ export const list = async (req: Request, res: Response) => {
   }
 };
 
-// GET /notifications/unread-count
+
 export const unreadCount = async (req: Request, res: Response) => {
   try {
     const userId = req.user!.id;

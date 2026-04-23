@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import pool from "../config/db.js";
 import cloudinary from "../config/cloudinary.js";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+
 
 export interface AccessToken {
   id: string;
@@ -18,7 +18,7 @@ export interface AccessToken {
   created_at: Date;
 }
 
-// ─── Generate ─────────────────────────────────────────────────────────────────
+
 
 export const generateAccessToken = async (
   buyerId: string,
@@ -39,7 +39,7 @@ export const generateAccessToken = async (
   return rawToken;
 };
 
-// ─── Validate + get signed URL ────────────────────────────────────────────────
+
 
 export const redeemAccessToken = async (
   rawToken: string,
@@ -113,15 +113,18 @@ export const redeemAccessToken = async (
   }
 
   
-  const downloads = files.map((file) => {
-    filename:file.original_name,
-    url:cloudinary.url(file.public_id, {
-      secure:true,
-      sign_url:true,
-      expires_at:Math.floor(Date.now() / 1000) = 10 * 60,
-      resource_type:'auto'
+  const downloads = files.map((file) => (
+    {
+     filename:file.original_name,
+     url:cloudinary.url(file.public_id, {
+     secure:true,
+     sign_url:true,
+     expires_at:Math.floor(Date.now() / 1000) + 10 * 60,
+     resource_type:'auto'
     })
-  });
+   
+    })
+);
 
   return { downloads } 
 };

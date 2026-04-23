@@ -2,7 +2,7 @@ import pool from "../config/db.js";
 import cloudinary from "../config/cloudinary.js";
 import type { ProductFile } from "./productFile.service.js";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+
 
 export interface Product {
   id: string;
@@ -17,12 +17,12 @@ export interface Product {
   updated_at: Date;
 }
 
-// Product with files attached — used for detail views
+
 export interface ProductWithFiles extends Product {
   files: ProductFile[];
 }
 
-// Paginated list response
+
 export interface PaginatedProducts {
   products: ProductWithFiles[];
   total: number;
@@ -43,9 +43,7 @@ export type UpdateProductInput = Partial<
   Pick<Product, "title" | "description" | "price_cents" | "thumbnail">
 >;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Attach files to a product row
 const withFiles = async (product: Product): Promise<ProductWithFiles> => {
   const { rows: files } = await pool.query<ProductFile>(
     `SELECT * FROM product_files WHERE product_id = $1 ORDER BY created_at ASC`,
@@ -54,7 +52,7 @@ const withFiles = async (product: Product): Promise<ProductWithFiles> => {
   return { ...product, files };
 };
 
-// ─── Create ───────────────────────────────────────────────────────────────────
+
 
 export const createProduct = async ({
   creator_id,
@@ -78,7 +76,7 @@ export const createProduct = async ({
   return product;
 };
 
-// ─── Read ─────────────────────────────────────────────────────────────────────
+
 
 export const getProductById = async (
   productId: string,
@@ -95,7 +93,7 @@ export const getProductById = async (
   return withFiles(product);
 };
 
-// All published products for a creator's public storefront — paginated
+
 export const listProductsByCreator = async (
   creatorId: string,
   page = 1,
@@ -129,7 +127,7 @@ export const listProductsByCreator = async (
   };
 };
 
-// Creator's own full product list — all statuses except deleted
+
 export const listOwnProducts = async (
   creatorId: string,
   page = 1,
@@ -163,7 +161,7 @@ export const listOwnProducts = async (
   };
 };
 
-// ─── Update ───────────────────────────────────────────────────────────────────
+
 
 export const updateProduct = async (
   productId: string,
@@ -250,7 +248,7 @@ export const unpublishProduct = async (
   return product;
 };
 
-// ─── Delete (soft + Cloudinary cleanup) ──────────────────────────────────────
+
 
 export const deleteProduct = async (
   productId: string,
@@ -270,7 +268,7 @@ export const deleteProduct = async (
     [productId]
   );
 
-  // Delete all files from Cloudinary
+
   await Promise.all(
     files.map((file) =>
       cloudinary.uploader.destroy(file.public_id, { resource_type: "auto" })
