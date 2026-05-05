@@ -2,12 +2,13 @@ import bcrypt from "bcrypt";
 import pool from "../config/db.js";
 import { generateAccessToken, generateRefreshToken } from "../utils/token.util.js";
 import type { UserProp } from "../types.ts/global.types.js";
+import { CreatorStatus } from "../types.ts/creator.types.js";
 
-export type SignupInput = Pick<UserProp, "email" | "name"> & { password: string };
+export type SignupInput = Pick<UserProp, "email" | "name" | "role"> & { password: string };
 export type LoginInput = Pick<UserProp, "email"> & { password: string };
 
 export const signupService = async (data: SignupInput) => {
-  const { email, password, name } = data;
+  const { email, password, name, role } = data;
 
   const existing = await pool.query(
     "SELECT id FROM users WHERE email = $1",
@@ -20,18 +21,52 @@ export const signupService = async (data: SignupInput) => {
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const result = await pool.query(
-    `INSERT INTO users (email, password_hash, role, name)
-     VALUES ($1, $2, 'buyer', $3)
-     RETURNING id, email, role, name`,
-    [email, passwordHash, name]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
 
-  const user = result.rows[0];
-  const accessToken = generateAccessToken(user);
-  const refreshToken = await generateRefreshToken(user.id);
+    const { rows: [user] } = await client.query(
+      `INSERT INTO users (email, password_hash, role, name)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, email, role, name`,
+      [email, passwordHash, role, name]
+    );
 
-  return { user, accessToken, refreshToken };
+    // Auto-create creator profile for every signup
+    const baseSlug = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+
+    // Ensure slug uniqueness by appending random suffix if taken
+    let storeSlug = baseSlug;
+    const { rows: [slugConflict] } = await client.query(
+      "SELECT id FROM creator_profiles WHERE store_slug = $1",
+      [storeSlug]
+    );
+    if (slugConflict) {
+      storeSlug = `${baseSlug}-${Math.random().toString(36).slice(2, 7)}`;
+    }
+
+    await client.query(
+      `INSERT INTO creator_profiles (user_id, display_name, store_slug, status)
+       VALUES ($1, $2, $3, $4)`,
+      [user.id, name, storeSlug, CreatorStatus.ACTIVE]
+    );
+
+    await client.query("COMMIT");
+
+    const accessToken = generateAccessToken(user);
+    const refreshToken = await generateRefreshToken(user.id);
+
+    return { user, accessToken, refreshToken };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 };
 
 export const loginService = async (data: LoginInput) => {

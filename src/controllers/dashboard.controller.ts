@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { getCreatorDashboard, getCreatorBuyers, type BuyerRow } from "../services/dashboard.service.js";
 
-// GET /creator/dashboard?period=30d
+
 export const dashboard = async (req: Request, res: Response) => {
   try {
     const creatorId = req.user!.id;
@@ -23,7 +23,7 @@ export const dashboard = async (req: Request, res: Response) => {
   }
 };
 
-// GET /creator/buyers
+
 export const buyers = async (req: Request, res: Response) => {
   try {
     const creatorId = req.user!.id;

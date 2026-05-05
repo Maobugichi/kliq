@@ -8,6 +8,7 @@ export const authenticateToken = (
 ) => {
   const authHeader = req.headers.authorization;
   const token = authHeader?.split(" ")[1];
+  
 
   if (!token) {
     return res.status(401).json({
@@ -57,6 +58,7 @@ export const authorizeRole = (...roles: string[]) => {
       });
     }
 
+    console.log(roles)
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,

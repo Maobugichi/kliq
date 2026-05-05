@@ -2,8 +2,6 @@ import pool from "../config/db.js";
 import cloudinary from "../config/cloudinary.js";
 import type { ProductFile } from "./productFile.service.js";
 
-
-
 export interface Product {
   id: string;
   creator_id: string;

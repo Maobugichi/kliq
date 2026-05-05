@@ -5,11 +5,9 @@ import { requireActiveCreator } from "../middleware/creator.middleware.js";
 
 const router = Router();
 
-// All dashboard routes — authenticated + active creator
-router.use(authenticateToken, requireActiveCreator);
 
-router.get("/creator/dashboard", dashboard);
-router.get("/creator/buyers", buyers);
-router.get("/creator/buyers/export", exportBuyers);
+router.get("/creator/dashboard", authenticateToken, requireActiveCreator, dashboard);
+router.get("/creator/buyers", authenticateToken, requireActiveCreator, buyers);
+router.get("/creator/buyers/export", authenticateToken, requireActiveCreator, exportBuyers);
 
 export default router;

@@ -20,10 +20,9 @@ import { upload } from "../middleware/upload.middleware.js";
 const router = Router();
 
 
+router.get("/products/me", authenticateToken, requireActiveCreator, listMine);
 router.get("/products/:productId", authenticateOptional, getOne);
 
-
-router.get("/products/me", authenticateToken, requireActiveCreator, listMine);
 router.post("/products", authenticateToken, requireActiveCreator, create);
 router.patch("/products/:productId", authenticateToken, requireActiveCreator, update);
 router.post("/products/:productId/publish", authenticateToken, requireActiveCreator, publish);

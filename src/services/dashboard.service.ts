@@ -1,7 +1,6 @@
 import pool from "../config/db.js";
 
 
-
 export interface SalesSummary {
   total_revenue_cents: number;
   total_orders: number;
@@ -39,7 +38,7 @@ export interface DashboardData {
   revenue_chart: RevenuePoint[];
 }
 
-// ─── Service ──────────────────────────────────────────────────────────────────
+
 
 export const getCreatorDashboard = async (
   creatorId: string,
@@ -47,7 +46,7 @@ export const getCreatorDashboard = async (
 ): Promise<DashboardData> => {
   const periodDays = { "7d": 7, "30d": 30, "90d": 90 }[period];
 
-  // ── Summary ────────────────────────────────────────────────────────────────
+
   const { rows: [summary] } = await pool.query<{
     total_revenue: string;
     total_orders: string;

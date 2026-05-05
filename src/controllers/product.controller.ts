@@ -10,11 +10,26 @@ import {
   type CreateProductInput,
   type UpdateProductInput,
 } from "../services/product.service.js";
+import { findCreatorByUserId } from "../services/creator.service.js";
 
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+async function getCreatorProfile(userId: string, res: Response) {
+  const profile = await findCreatorByUserId(userId);
+  if (!profile) {
+    res.status(403).json({ success: false, message: "Creator profile not found" });
+    return null;
+  }
+  return profile;
+}
+
+// ─── Controllers ──────────────────────────────────────────────────────────────
 
 export const create = async (req: Request, res: Response) => {
   try {
-    const creatorId = req.user!.id;
+    const profile = await getCreatorProfile(req.user!.id, res);
+    if (!profile) return;
+
     const { title, description, price_cents, thumbnail } = req.body as Omit<
       CreateProductInput,
       "creator_id"
@@ -28,11 +43,11 @@ export const create = async (req: Request, res: Response) => {
     }
 
     const product = await createProduct({
-        creator_id: creatorId,
-        title,
-        price_cents,
-        ...(description !== undefined && { description }),
-        ...(thumbnail !== undefined && { thumbnail }),
+      creator_id: profile.id,
+      title,
+      price_cents,
+      ...(description !== undefined && { description }),
+      ...(thumbnail !== undefined && { thumbnail }),
     });
 
     return res.status(201).json({ success: true, data: product });
@@ -42,14 +57,15 @@ export const create = async (req: Request, res: Response) => {
   }
 };
 
-// GET /products/me — creator's own products (all statuses)
 export const listMine = async (req: Request, res: Response) => {
   try {
-    const creatorId = req.user!.id;
+    const profile = await getCreatorProfile(req.user!.id, res);
+    if (!profile) return;
+
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 12;
 
-    const result = await listOwnProducts(creatorId, page, limit);
+    const result = await listOwnProducts(profile.id, page, limit);
 
     return res.status(200).json({ success: true, data: result });
   } catch (err) {
@@ -58,7 +74,6 @@ export const listMine = async (req: Request, res: Response) => {
   }
 };
 
-// GET /products/:productId
 export const getOne = async (req: Request, res: Response) => {
   try {
     const productId = req.params["productId"] as string;
@@ -67,8 +82,6 @@ export const getOne = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "productId is required" });
     }
 
-    // Include private (draft/unpublished) only if the requester is the owner
-    const requesterId = req.user?.id;
     const product = await getProductById(productId, true);
 
     if (!product) {
@@ -76,8 +89,15 @@ export const getOne = async (req: Request, res: Response) => {
     }
 
     // Non-owners can only see published products
-    if (product.status !== "published" && product.creator_id !== requesterId) {
-      return res.status(404).json({ success: false, message: "Product not found" });
+    // product.creator_id is creator_profiles.id — resolve requester's profile.id to compare
+    if (product.status !== "published") {
+      if (!req.user) {
+        return res.status(404).json({ success: false, message: "Product not found" });
+      }
+      const profile = await findCreatorByUserId(req.user.id);
+      if (!profile || profile.id !== product.creator_id) {
+        return res.status(404).json({ success: false, message: "Product not found" });
+      }
     }
 
     return res.status(200).json({ success: true, data: product });
@@ -87,19 +107,19 @@ export const getOne = async (req: Request, res: Response) => {
   }
 };
 
-// PATCH /products/:productId
 export const update = async (req: Request, res: Response) => {
   try {
     const productId = req.params["productId"] as string;
-    const creatorId = req.user!.id;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "productId is required" });
     }
 
-    const updates = req.body as UpdateProductInput;
+    const profile = await getCreatorProfile(req.user!.id, res);
+    if (!profile) return;
 
-    const product = await updateProduct(productId, creatorId, updates);
+    const updates = req.body as UpdateProductInput;
+    const product = await updateProduct(productId, profile.id, updates);
 
     return res.status(200).json({ success: true, data: product });
   } catch (err) {
@@ -114,23 +134,20 @@ export const update = async (req: Request, res: Response) => {
   }
 };
 
-// POST /products/:productId/publish
 export const publish = async (req: Request, res: Response) => {
   try {
     const productId = req.params["productId"] as string;
-    const creatorId = req.user!.id;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "productId is required" });
     }
 
-    const product = await publishProduct(productId, creatorId);
+    const profile = await getCreatorProfile(req.user!.id, res);
+    if (!profile) return;
 
-    return res.status(200).json({
-      success: true,
-      message: "Product published",
-      data: product,
-    });
+    const product = await publishProduct(productId, profile.id);
+
+    return res.status(200).json({ success: true, message: "Product published", data: product });
   } catch (err) {
     if (err instanceof Error) {
       const clientErrors = [
@@ -147,23 +164,20 @@ export const publish = async (req: Request, res: Response) => {
   }
 };
 
-// POST /products/:productId/unpublish
 export const unpublish = async (req: Request, res: Response) => {
   try {
     const productId = req.params["productId"] as string;
-    const creatorId = req.user!.id;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "productId is required" });
     }
 
-    const product = await unpublishProduct(productId, creatorId);
+    const profile = await getCreatorProfile(req.user!.id, res);
+    if (!profile) return;
 
-    return res.status(200).json({
-      success: true,
-      message: "Product unpublished",
-      data: product,
-    });
+    const product = await unpublishProduct(productId, profile.id);
+
+    return res.status(200).json({ success: true, message: "Product unpublished", data: product });
   } catch (err) {
     if (err instanceof Error && err.message === "Product not found or cannot be unpublished")
       return res.status(404).json({ success: false, message: err.message });
@@ -172,22 +186,20 @@ export const unpublish = async (req: Request, res: Response) => {
   }
 };
 
-// DELETE /products/:productId
 export const remove = async (req: Request, res: Response) => {
   try {
     const productId = req.params["productId"] as string;
-    const creatorId = req.user!.id;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "productId is required" });
     }
 
-    await deleteProduct(productId, creatorId);
+    const profile = await getCreatorProfile(req.user!.id, res);
+    if (!profile) return;
 
-    return res.status(200).json({
-      success: true,
-      message: "Product deleted",
-    });
+    await deleteProduct(productId, profile.id);
+
+    return res.status(200).json({ success: true, message: "Product deleted" });
   } catch (err) {
     if (err instanceof Error && err.message === "Product not found or unauthorized")
       return res.status(404).json({ success: false, message: err.message });

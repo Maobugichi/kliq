@@ -17,8 +17,8 @@ export const signup = async (
   res: Response
 ) => {
   try {
-    const { email, name, password } = req.body;
-    const result = await signupService({ email, name, password });
+    const { email, name, password , role } = req.body;
+    const result = await signupService({ email, name, password, role });
     return res.status(201).json(result);
   } catch (err: any) {
     if (err.message === "Email already in use") {

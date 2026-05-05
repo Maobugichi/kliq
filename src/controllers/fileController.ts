@@ -5,13 +5,25 @@ import {
   deleteProductFile,
 } from "../services/productFile.service.js";
 import type { UploadableFile } from "../utils/cloudinary.util.js";
+import { findCreatorByUserId } from "../services/creator.service.js";
 import pool from "../config/db.js";
 
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+async function resolveCreatorProfileId(userId: string, res: Response): Promise<string | null> {
+  const profile = await findCreatorByUserId(userId);
+  if (!profile) {
+    res.status(403).json({ success: false, message: "Creator profile not found" });
+    return null;
+  }
+  return profile.id;
+}
+
+// ─── Controllers ──────────────────────────────────────────────────────────────
 
 export const uploadFile = async (req: Request, res: Response) => {
   try {
     const productId = req.params["productId"] as string;
-    const creatorId = req.user!.id;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "productId is required" });
@@ -21,17 +33,16 @@ export const uploadFile = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "No file uploaded" });
     }
 
-    
+    const creatorProfileId = await resolveCreatorProfileId(req.user!.id, res);
+    if (!creatorProfileId) return;
+
     const { rows: [product] } = await pool.query<{ id: string }>(
       `SELECT id FROM products WHERE id = $1 AND creator_id = $2 AND status != 'deleted'`,
-      [productId, creatorId]
+      [productId, creatorProfileId]
     );
 
     if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found or unauthorized",
-      });
+      return res.status(404).json({ success: false, message: "Product not found or unauthorized" });
     }
 
     const file = await attachFileToProduct(productId, req.file as UploadableFile);
@@ -43,27 +54,24 @@ export const uploadFile = async (req: Request, res: Response) => {
   }
 };
 
-// GET /products/:productId/files
 export const listFiles = async (req: Request, res: Response) => {
   try {
-   const productId = req.params["productId"] as string;
-    const creatorId = req.user!.id;
+    const productId = req.params["productId"] as string;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: "productId is required" });
     }
 
-    // Verify ownership
+    const creatorProfileId = await resolveCreatorProfileId(req.user!.id, res);
+    if (!creatorProfileId) return;
+
     const { rows: [product] } = await pool.query<{ id: string }>(
       `SELECT id FROM products WHERE id = $1 AND creator_id = $2`,
-      [productId, creatorId]
+      [productId, creatorProfileId]
     );
 
     if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found or unauthorized",
-      });
+      return res.status(404).json({ success: false, message: "Product not found or unauthorized" });
     }
 
     const files = await getProductFiles(productId);
@@ -75,41 +83,32 @@ export const listFiles = async (req: Request, res: Response) => {
   }
 };
 
-// DELETE /products/:productId/files/:fileId
 export const removeFile = async (req: Request, res: Response) => {
   try {
     const productId = req.params["productId"] as string;
     const fileId = req.params["fileId"] as string;
-    const creatorId = req.user!.id;
 
     if (!productId || !fileId) {
-      return res.status(400).json({
-        success: false,
-        message: "productId and fileId are required",
-      });
+      return res.status(400).json({ success: false, message: "productId and fileId are required" });
     }
 
-    // Verify ownership
+    const creatorProfileId = await resolveCreatorProfileId(req.user!.id, res);
+    if (!creatorProfileId) return;
+
     const { rows: [product] } = await pool.query<{ id: string }>(
       `SELECT id FROM products WHERE id = $1 AND creator_id = $2`,
-      [productId, creatorId]
+      [productId, creatorProfileId]
     );
 
     if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found or unauthorized",
-      });
+      return res.status(404).json({ success: false, message: "Product not found or unauthorized" });
     }
 
     await deleteProductFile(fileId, productId);
 
     return res.status(200).json({ success: true, message: "File deleted" });
   } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message === "File not found or does not belong to this product"
-    )
+    if (err instanceof Error && err.message === "File not found or does not belong to this product")
       return res.status(404).json({ success: false, message: err.message });
     console.error("removeFile error:", err);
     return res.status(500).json({ success: false, message: "Internal Server Error" });

@@ -16,29 +16,9 @@ export const requireActiveCreator = async (
     }
 
     const profile = await findCreatorByUserId(req.user.id);
+   
 
-    if (!profile) {
-      return res.status(403).json({
-        success: false,
-        message: "Creator profile not found. Apply to become a creator first.",
-      });
-    }
-
-    if (profile.status === CreatorStatus.PENDING) {
-      return res.status(403).json({
-        success: false,
-        message: "Your creator account is pending approval",
-      });
-    }
-
-    if (profile.status === CreatorStatus.REJECTED) {
-      return res.status(403).json({
-        success: false,
-        message: "Your creator account application was rejected",
-      });
-    }
-
-    if (profile.status === CreatorStatus.SUSPENDED) {
+    if (profile?.status === CreatorStatus.SUSPENDED) {
       return res.status(403).json({
         success: false,
         message: "Your creator account has been suspended",
