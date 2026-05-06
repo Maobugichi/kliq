@@ -25,13 +25,15 @@ const allowedOrigins = [
   "https://www.creatorlock.co",
 ].filter(Boolean) as string[];
 
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  })
-);
+const corsOptions = {
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
 
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); 
 
 
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
@@ -41,7 +43,7 @@ app.use(express.json());
 
 
 app.use((req, res, next) => {
-  console.log(`🔥 ${req.method} ${req.url}`);
+  console.log(`${req.method} ${req.url}`);
   next();
 });
 
