@@ -76,6 +76,13 @@ app.use("/api", affiliateRouter);
 // app.use("/api", emailListRouter);
 
 
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    time: new Date().toISOString(),
+  });
+});
+
 app.use((req, _res, next) => {
   console.log(`→ ${req.method} ${req.path}`);
   next();
