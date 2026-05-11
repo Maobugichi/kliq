@@ -16,6 +16,7 @@ import affiliateRouter from "./routes/affiliate.route.js";
 import notificationRouter from "./routes/notification.route.js";
 import waitlistRouter from "./routes/waitlist.routes.js";
 import type multer from "multer";
+import { startEmailWorker } from "./utils/emailqueue.js";
 
 const app = express();
 
@@ -100,7 +101,7 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ success: false, message: err.message ?? "Internal Server Error" });
 });
 
-// ─── Process-level error catchers ────────────────────────────────────────────
+
 
 process.on("uncaughtException", (err) => {
   console.error(" Uncaught Exception:", err);
@@ -110,13 +111,15 @@ process.on("unhandledRejection", (reason) => {
   console.error(" Unhandled Rejection:", reason);
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
 
+startEmailWorker();
 
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log(`kliq server running on port ${PORT}`);
 });
+
+
 
 server.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EADDRINUSE") {

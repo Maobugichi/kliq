@@ -15,6 +15,12 @@ const connection = new Redis(process.env.UPSTASH_REDIS_URL, {
         retryStrategy: (times:number) => Math.min(times * 200, 5_000)
 });
 
+connection.on("connect",      () => console.log("[redis] ✓ Connected to Upstash"));
+connection.on("ready",        () => console.log("[redis] ✓ Ready to accept commands"));
+connection.on("error",        (err) => console.error("[redis] ✗ Error:", err.message));
+connection.on("close",        () => console.warn("[redis] Connection closed"));
+connection.on("reconnecting", () => console.warn("[redis] Reconnecting..."));
+
 export interface WaitlistConfirmationJob {
     email:string;
 }
@@ -38,11 +44,13 @@ export const enqueueWaitlistConfirmation = async (email:string):Promise<void> =>
 }
 
 export const startEmailWorker = ():Worker<EmailJobData> => {
+    console.log("[emailWorker] Starting worker...");  // add this
     const worker = new Worker<EmailJobData>(
         "emails",
         async (job:Job<EmailJobData>) => {
              if (job.name === "waitlist.confirmation")  {
                 const { email } = job.data as WaitlistConfirmationJob;
+                console.log(`[emailWorker] Sending confirmation to ${email}`);
                 await sendWaitlistConfirmationEmail(email);
                 return;
             }
