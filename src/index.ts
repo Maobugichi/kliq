@@ -19,7 +19,7 @@ import type multer from "multer";
 
 const app = express();
 
-// ─── CORS ─────────────────────────────────────────────────────────────────────
+app.set("trust proxy", 1);
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
