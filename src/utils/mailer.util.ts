@@ -85,20 +85,76 @@ export const sendDownloadEmail = async (
 export const sendWaitlistConfirmationEmail = async (to: string): Promise<void> => {
   await sendEmail({
     to,
-    subject: "You're on the CreatorLock waitlist 🔒",
+    subject: "You’ve been locked in 🔐 CreatorLock waitlist",
     html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
-        <h2 style="margin:0 0 8px;font-size:24px;color:#111">You're on the list.</h2>
-        <p style="color:#444;line-height:1.6;margin:0 0 24px">
-          Thanks for signing up for early access to CreatorLock — the platform built
-          for African creators to sell digital products and get paid instantly.
+      <div style="
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        max-width: 520px;
+        margin: 0 auto;
+        padding: 40px 28px;
+        background: #0b0b0c;
+        color: #e5e5e5;
+        border-radius: 16px;
+      ">
+
+      
+        <div style="text-align:center;margin-bottom:28px;">
+          <div style="
+            width:42px;height:42px;margin:0 auto 14px;
+            border-radius:999px;
+            background:rgba(255,92,0,0.12);
+            border:1px solid rgba(255,92,0,0.35);
+            display:flex;align-items:center;justify-content:center;
+            color:#FF5C00;font-weight:700;
+          ">
+            🔐
+          </div>
+
+          <h2 style="
+            margin:0;
+            font-size:22px;
+            color:#ffffff;
+            letter-spacing:-0.02em;
+          ">
+            You’re locked in.
+          </h2>
+
+          <p style="
+            margin:6px 0 0;
+            font-size:13px;
+            color:#888;
+            letter-spacing:0.12em;
+            text-transform:uppercase;
+          ">
+            CreatorLock waitlist
+          </p>
+        </div>
+
+        
+        <p style="color:#cfcfcf;line-height:1.7;margin:0 0 18px;">
+          You’ve just secured early access to CreatorLock — a private space for African creators building, selling, and protecting digital products.
         </p>
-        <p style="color:#444;line-height:1.6;margin:0 0 24px">
-          We're putting the finishing touches on things. You'll be among the first
-          to know when we launch.
+
+        <p style="color:#cfcfcf;line-height:1.7;margin:0 0 22px;">
+          Think of this as a quiet entry into something early. We’re still setting things up behind the scenes, but you’ll be one of the first to step inside when the doors open.
         </p>
-        <p style="color:#888;font-size:13px;margin:0">
-          Didn't sign up? You can safely ignore this email.
+
+        
+        <div style="
+          padding:12px 14px;
+          border-radius:12px;
+          background:rgba(255,92,0,0.06);
+          border:1px solid rgba(255,92,0,0.15);
+          color:#ffb38a;
+          font-size:13px;
+          margin-bottom:24px;
+        ">
+          ⚡ Early access is reserved. You’re ahead of the crowd.
+        </div>
+
+       
+        <p style="color:#777;font-size:12px;line-height:1.6;margin:0;">
+          Didn’t request this? You can ignore this email safely.
         </p>
       </div>
     `,
