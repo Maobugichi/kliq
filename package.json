@@ -4,7 +4,7 @@
   "description": "CreatorLock backend API",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "nodemon --watch src --exec tsx src/index.ts",
+    "dev": "nodemon",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
@@ -17,15 +17,19 @@
   "type": "module",
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.76.6",
     "cloudinary": "^2.9.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.1",
+    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "paystack-node": "^0.3.0",
     "pg": "^8.20.0",
-    "resend": "^6.9.4"
+    "resend": "^6.9.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

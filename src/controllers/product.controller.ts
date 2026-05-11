@@ -118,7 +118,18 @@ export const update = async (req: Request, res: Response) => {
     const profile = await getCreatorProfile(req.user!.id, res);
     if (!profile) return;
 
-    const updates = req.body as UpdateProductInput;
+    const updates: UpdateProductInput = { ...req.body };
+
+    
+    if (req.file) {
+      // pass the file path/url through to the service however your cloudinary util works
+      updates.thumbnail = req.file.path; // or req.file.filename depending on your storage config
+    }
+
+    if (!updates || Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid fields to update" });
+    }
+
     const product = await updateProduct(productId, profile.id, updates);
 
     return res.status(200).json({ success: true, data: product });

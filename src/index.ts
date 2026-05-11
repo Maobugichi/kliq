@@ -1,5 +1,5 @@
 import "dotenv/config";
-import express from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 
 import authRouter from "./routes/auth.route.js";
@@ -14,10 +14,12 @@ import buyerRouter from "./routes/buyer.route.js";
 import couponRouter from "./routes/coupon.route.js";
 import affiliateRouter from "./routes/affiliate.route.js";
 import notificationRouter from "./routes/notification.route.js";
-import waitlistRouter from "./routes/waitlist.routes.js"
-// import emailListRouter from "./routes/emailList.routes.js";
+import waitlistRouter from "./routes/waitlist.routes.js";
+import type multer from "multer";
 
 const app = express();
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
 
 const allowedOrigins = [
   process.env.FRONTEND_URL,
@@ -25,38 +27,29 @@ const allowedOrigins = [
   "https://www.creatorlock.co",
 ].filter(Boolean) as string[];
 
-const corsOptions = {
+app.use(cors({
   origin: allowedOrigins,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-};
-
-app.use(cors(corsOptions));
-app.use((req, res, next) => {
-  if (req.method === "OPTIONS") {
-    res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
-    res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.header("Access-Control-Allow-Credentials", "true");
-    return res.sendStatus(204);
-  }
-  next();
-});
+}));
 
 
+
+// ─── Body parsers ─────────────────────────────────────────────────────────────
+
+// Webhook must receive raw body — register BEFORE express.json()
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
-
-
 app.use(express.json());
 
+// ─── Request logger ───────────────────────────────────────────────────────────
 
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url}`);
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  console.log(`🔥 ${req.method} ${req.url}`);
   next();
 });
 
-
+// ─── Routes ───────────────────────────────────────────────────────────────────
 
 app.use("/api", authRouter);
 app.use("/api", creatorRouter);
@@ -72,27 +65,66 @@ app.use("/api", buyerRouter);
 app.use("/api", couponRouter);
 app.use("/api", affiliateRouter);
 
+// ─── Health check ─────────────────────────────────────────────────────────────
 
-// app.use("/api", emailListRouter);
-
-
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "ok",
-    time: new Date().toISOString(),
-  });
+app.get("/health", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "ok", time: new Date().toISOString() });
 });
 
-app.use((req, _res, next) => {
-  console.log(`→ ${req.method} ${req.path}`);
-  next();
+// ─── 404 handler ─────────────────────────────────────────────────────────────
+
+app.use((req: Request, res: Response) => {
+  console.warn(`⚠️  404 — ${req.method} ${req.path}`);
+  res.status(404).json({ success: false, message: `Route ${req.method} ${req.path} not found` });
 });
+
+// ─── Global error handler ─────────────────────────────────────────────────────
+// In index.ts global error handler
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  // Handle Multer errors cleanly
+  if (err.name === "MulterError") {
+    const multerErr = err as multer.MulterError;
+    const messages: Record<string, string> = {
+      LIMIT_FILE_SIZE: "File is too large",
+      LIMIT_FILE_COUNT: "Too many files",
+      LIMIT_UNEXPECTED_FILE: "Unexpected file field",
+    };
+    return res.status(400).json({
+      success: false,
+      message: messages[multerErr.code] ?? multerErr.message,
+    });
+  }
+
+  console.error(` [${req.method} ${req.path}]`, err.message);
+  console.error(err.stack);
+  res.status(500).json({ success: false, message: err.message ?? "Internal Server Error" });
+});
+
+// ─── Process-level error catchers ────────────────────────────────────────────
+
+process.on("uncaughtException", (err) => {
+  console.error(" Uncaught Exception:", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error(" Unhandled Rejection:", reason);
+});
+
+// ─── Start ────────────────────────────────────────────────────────────────────
 
 
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`kliq server running on port ${PORT}`);
+});
+
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`💥 Port ${PORT} is already in use`);
+    process.exit(1);
+  } else {
+    throw err;
+  }
 });
 
 export default app;

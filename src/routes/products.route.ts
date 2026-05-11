@@ -15,16 +15,27 @@ import {
 } from "../controllers/fileController.js";
 import { authenticateToken, authenticateOptional } from "../middleware/auth.middleware.js";
 import { requireActiveCreator } from "../middleware/creator.middleware.js";
-import { upload } from "../middleware/upload.middleware.js";
+import { upload, uploadThumbnail } from "../middleware/upload.middleware.js";
 
 const router = Router();
+
+import type { RequestHandler } from "express";
+
+const [thumbnailParser, thumbnailUploader] = uploadThumbnail as [RequestHandler, RequestHandler];~
 
 
 router.get("/products/me", authenticateToken, requireActiveCreator, listMine);
 router.get("/products/:productId", authenticateOptional, getOne);
 
 router.post("/products", authenticateToken, requireActiveCreator, create);
-router.patch("/products/:productId", authenticateToken, requireActiveCreator, update);
+router.patch(
+  "/products/:productId",
+  authenticateToken,
+  requireActiveCreator,
+  thumbnailParser,
+  thumbnailUploader,
+  update
+);
 router.post("/products/:productId/publish", authenticateToken, requireActiveCreator, publish);
 router.post("/products/:productId/unpublish", authenticateToken, requireActiveCreator, unpublish);
 router.delete("/products/:productId", authenticateToken, requireActiveCreator, remove);

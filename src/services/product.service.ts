@@ -216,7 +216,7 @@ export const publishProduct = async (
 
   if (!creator) throw new Error("Creator profile not found");
   if (creator.status !== "active") throw new Error("Only active creators can publish products");
-  if (!creator.payout_enabled) throw new Error("Complete payout onboarding before publishing");
+  //if (!creator.payout_enabled) throw new Error("Complete payout onboarding before publishing");
 
   const { rows: [product] } = await pool.query<Product>(
     `UPDATE products

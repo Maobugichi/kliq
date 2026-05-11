@@ -1,6 +1,13 @@
 {
   "watch": ["src"],
   "ext": "ts",
-  "ignore": ["src/**/*.test.ts"],
-  "exec": "tsx src/index.ts"
+  "ignore": [
+    "src/**/*.test.ts",
+    "src/**/*.js",
+    "src/**/*.map",
+    "temp/**"
+  ],
+  "exec": "tsx src/index.ts",
+  "signal": "SIGTERM",
+  "delay": 500
 }

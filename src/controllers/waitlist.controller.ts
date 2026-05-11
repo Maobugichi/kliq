@@ -1,24 +1,31 @@
 import type { Request, Response } from "express";
 import { joinWaitlist, getWaitlist, getWaitlistCount } from "../services/waitlist.service.js";
+import { z } from "zod";
+import { enqueueWaitlistConfirmation, handleEmailWebhook, type EmailWebhookEvent } from "../utils/emailqueue.js";
 
+
+export const joinWaitlistSchema = z.object({
+  email:z
+     .string({error: "Email is required" })
+     .trim()
+     .toLowerCase()
+     .email("Must be a valid email address")
+})
+
+export type joinWaitlistBody = z.infer<typeof joinWaitlistSchema>;
 
 export const join = async (req: Request, res: Response) => {
   try {
-    const { email } = req.body as { name?: string; email?: string };
+    const { email } = req.body as joinWaitlistBody;
 
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "email is required",
-      });
-    }
+    const entry = await joinWaitlist(email);
 
-    const entry = await joinWaitlist(email.trim().toLowerCase());
+    await enqueueWaitlistConfirmation(entry.email);
 
     return res.status(201).json({
       success: true,
       message: "You're on the list! We'll reach out when we launch.",
-      data: { id: entry.id, name: entry.name, email: entry.email },
+      data: { id: entry.id, email: entry.email },
     });
   } catch (err) {
     if (err instanceof Error && err.message === "Email already on waitlist") {
@@ -57,3 +64,18 @@ export const list = async (_req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
+
+export const emailWebhook = async (req:Request, res:Response) => {
+  try {
+    const events:EmailWebhookEvent[] = Array.isArray(req.body) ? req.body : [req.body];
+
+    await Promise.all(events.map(handleEmailWebhook));
+
+    return res.status(200).json({ received: true });
+  } catch (err) {
+
+     console.error("[webhook] email webhook error:", err);
+    
+     res.status(200).json({ received: true });
+  }
+}

@@ -81,3 +81,26 @@ export const sendDownloadEmail = async (
     `,
   });
 };
+
+export const sendWaitlistConfirmationEmail = async (to: string): Promise<void> => {
+  await sendEmail({
+    to,
+    subject: "You're on the CreatorLock waitlist 🔒",
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
+        <h2 style="margin:0 0 8px;font-size:24px;color:#111">You're on the list.</h2>
+        <p style="color:#444;line-height:1.6;margin:0 0 24px">
+          Thanks for signing up for early access to CreatorLock — the platform built
+          for African creators to sell digital products and get paid instantly.
+        </p>
+        <p style="color:#444;line-height:1.6;margin:0 0 24px">
+          We're putting the finishing touches on things. You'll be among the first
+          to know when we launch.
+        </p>
+        <p style="color:#888;font-size:13px;margin:0">
+          Didn't sign up? You can safely ignore this email.
+        </p>
+      </div>
+    `,
+  });
+};
