@@ -86,6 +86,7 @@ export const sendWaitlistConfirmationEmail = async (to: string): Promise<void> =
   await sendEmail({
     to,
     subject: "You’ve been locked in 🔐 CreatorLock waitlist",
+    
     html: `
       <div style="
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -99,16 +100,20 @@ export const sendWaitlistConfirmationEmail = async (to: string): Promise<void> =
 
       
         <div style="text-align:center;margin-bottom:28px;">
-          <div style="
-            width:42px;height:42px;margin:0 auto 14px;
-            border-radius:999px;
-            background:rgba(255,92,0,0.12);
-            border:1px solid rgba(255,92,0,0.35);
-            display:flex;align-items:center;justify-content:center;
-            color:#FF5C00;font-weight:700;
-          ">
-            🔐
-          </div>
+           <div style="
+              width:42px;
+              height:42px;
+              margin:0 auto 14px;
+              border-radius:999px;
+              background:rgba(255,92,0,0.12);
+              border:1px solid rgba(255,92,0,0.35);
+              color:#FF5C00;
+              font-size:20px;
+              line-height:42px;
+              text-align:center;
+            ">
+              🔐
+            </div>
 
           <h2 style="
             margin:0;
