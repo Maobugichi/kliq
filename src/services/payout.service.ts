@@ -13,6 +13,7 @@ export interface Payout {
   currency: string;
   status: "pending" | "approved" | "processing" | "paid" | "failed";
   bank_code: string | null;
+  //bank_name: string | null;
   account_number: string | null;
   account_name: string | null;
   paystack_transfer_code: string | null;
@@ -38,7 +39,7 @@ const paystackRequest = async (
     method,
     headers: {
       Authorization: `Bearer ${PAYSTACK_SECRET}`,
-      "Content-Type": "application/json",
+      ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : null,
   });
@@ -48,9 +49,7 @@ const paystackRequest = async (
   return data;
 };
 
-// ─── Resolve bank account ─────────────────────────────────────────────────────
 
-// Verify account number + bank code before creating a payout request
 export const resolveBankAccount = async (
   accountNumber: string,
   bankCode: string
@@ -59,7 +58,6 @@ export const resolveBankAccount = async (
     "GET",
     `/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`
   );
-
   return {
     account_name: data.data.account_name,
     account_number: data.data.account_number,

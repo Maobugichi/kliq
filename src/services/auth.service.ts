@@ -3,6 +3,8 @@ import pool from "../config/db.js";
 import { generateAccessToken, generateRefreshToken } from "../utils/token.util.js";
 import type { UserProp } from "../types.ts/global.types.js";
 import { CreatorStatus } from "../types.ts/creator.types.js";
+import crypto from "crypto"
+import { sendEmailVerification } from "./emailVerification.service.js";
 
 export type SignupInput = Pick<UserProp, "email" | "name" | "role"> & { password: string };
 export type LoginInput = Pick<UserProp, "email"> & { password: string };
@@ -32,14 +34,14 @@ export const signupService = async (data: SignupInput) => {
       [email, passwordHash, role, name]
     );
 
-    // Auto-create creator profile for every signup
+    
     const baseSlug = name
       .toLowerCase()
       .trim()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
 
-    // Ensure slug uniqueness by appending random suffix if taken
+    
     let storeSlug = baseSlug;
     const { rows: [slugConflict] } = await client.query(
       "SELECT id FROM creator_profiles WHERE store_slug = $1",
@@ -59,6 +61,11 @@ export const signupService = async (data: SignupInput) => {
 
     const accessToken = generateAccessToken(user);
     const refreshToken = await generateRefreshToken(user.id);
+
+    sendEmailVerification(user.id, user.email).catch((err) =>
+      console.error("[signup] Failed to send verification email:", err)
+    );
+
 
     return { user, accessToken, refreshToken };
   } catch (err) {
@@ -172,3 +179,4 @@ export const logoutAllService = async (data: { userId: string }) => {
     tokensRevoked: result.rowCount ?? 0,
   };
 };
+

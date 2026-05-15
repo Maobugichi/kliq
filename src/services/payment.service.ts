@@ -110,7 +110,7 @@ export const initiatePayment = async ({
 
   const ref = `cl-${buyerId.slice(0, 8)}-${Date.now()}`;
 
-  // ── Free product (or 100% coupon) — skip Paystack ─────────────────────────
+  
   if (finalPriceCents === 0) {
     await pool.query("BEGIN");
     try {
@@ -132,7 +132,7 @@ export const initiatePayment = async ({
 
       await sendDownloadEmail(email, buyer?.name ?? "there", product.title, rawToken);
 
-      // Increment coupon usage if applied
+    
       if (couponId) await incrementCouponUsage(couponId);
 
       await pool.query("COMMIT");
@@ -151,7 +151,7 @@ export const initiatePayment = async ({
     };
   }
 
-  // ── Paid product — create pending order + Paystack checkout ───────────────
+  
   await pool.query(
     `INSERT INTO orders (buyer_id, product_id, amount_cents, paystack_ref, status,affiliate_code)
      VALUES ($1, $2, $3, $4, 'pending')`,
@@ -170,7 +170,7 @@ export const initiatePayment = async ({
     },
   });
 
-  // Store coupon_id in orders so webhook can increment usage on success
+   
   if (couponId) {
     await pool.query(
       `UPDATE orders SET coupon_id = $1 WHERE paystack_ref = $2`,

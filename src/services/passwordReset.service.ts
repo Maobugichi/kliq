@@ -26,7 +26,7 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
     [email]
   );
 
-  if (!user) return; // Don't leak whether email exists
+  if (!user) return; 
 
   await invalidatePreviousTokens(user.id);
 

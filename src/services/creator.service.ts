@@ -129,3 +129,11 @@ export const updateCreatorStatus = async (
   if (!profile) throw new Error("Creator profile not found");
   return profile;
 };
+
+export const isSlugAvailable = async (slug: string): Promise<boolean> => {
+  const { rows: [existing] } = await pool.query(
+    "SELECT id FROM creator_profiles WHERE store_slug = $1",
+    [slug]
+  );
+  return !existing;
+};

@@ -13,7 +13,7 @@ import { requireActiveCreator } from "../middleware/creator.middleware.js";
 
 const router = Router();
 
-// Public — frontend needs this for the bank dropdown
+
 router.get("/payouts/banks", listBanks);
 router.get("/payouts/resolve", resolveAccount);
 

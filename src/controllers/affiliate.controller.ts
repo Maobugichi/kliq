@@ -10,21 +10,21 @@ import {
 export const invite = async (req: Request, res: Response) => {
   try {
     const creatorId = req.user!.id;
-    const { affiliate_user_id, commission_percent } = req.body as {
-      affiliate_user_id?: string;
+    const { affiliate_email, commission_percent } = req.body as {
+      affiliate_email?: string;    
       commission_percent?: number;
     };
 
-    if (!affiliate_user_id) {
+    if (!affiliate_email) {
       return res.status(400).json({
         success: false,
-        message: "affiliate_user_id is required",
+        message: "affiliate_email is required",   
       });
     }
 
     const affiliate = await createAffiliate(
       creatorId,
-      affiliate_user_id,
+      affiliate_email,             
       commission_percent ?? 10
     );
 

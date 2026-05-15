@@ -137,7 +137,6 @@ export const getCreatorDashboard = async (
   };
 };
 
-// ── Buyer list + CSV export ────────────────────────────────────────────────────
 
 export interface BuyerRow {
   buyer_id: string;

@@ -38,6 +38,7 @@ export const resolveAccount = async (req: Request, res: Response) => {
       });
     }
 
+
     const resolved = await resolveBankAccount(account_number, bank_code);
     return res.status(200).json({ success: true, data: resolved });
   } catch (err) {

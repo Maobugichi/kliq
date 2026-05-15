@@ -206,11 +206,12 @@ export const publishProduct = async (
   productId: string,
   creatorId: string
 ): Promise<Product> => {
+ 
   const { rows: [creator] } = await pool.query<{
     status: string;
     payout_enabled: boolean;
   }>(
-    `SELECT status, payout_enabled FROM creator_profiles WHERE user_id = $1`,
+    `SELECT status, payout_enabled FROM creator_profiles WHERE id = $1`,
     [creatorId]
   );
 

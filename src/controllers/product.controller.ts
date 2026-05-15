@@ -16,6 +16,7 @@ import { findCreatorByUserId } from "../services/creator.service.js";
 
 async function getCreatorProfile(userId: string, res: Response) {
   const profile = await findCreatorByUserId(userId);
+  
   if (!profile) {
     res.status(403).json({ success: false, message: "Creator profile not found" });
     return null;
@@ -153,10 +154,13 @@ export const publish = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "productId is required" });
     }
 
+    
     const profile = await getCreatorProfile(req.user!.id, res);
     if (!profile) return;
 
     const product = await publishProduct(productId, profile.id);
+
+    
 
     return res.status(200).json({ success: true, message: "Product published", data: product });
   } catch (err) {

@@ -36,10 +36,6 @@ app.use(cors({
 }));
 
 
-
-// ─── Body parsers ─────────────────────────────────────────────────────────────
-
-// Webhook must receive raw body — register BEFORE express.json()
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 
@@ -50,7 +46,6 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
 
 app.use("/api", authRouter);
 app.use("/api", creatorRouter);
@@ -66,21 +61,19 @@ app.use("/api", buyerRouter);
 app.use("/api", couponRouter);
 app.use("/api", affiliateRouter);
 
-// ─── Health check ─────────────────────────────────────────────────────────────
 
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok", time: new Date().toISOString() });
 });
 
-// ─── 404 handler ─────────────────────────────────────────────────────────────
+
 
 app.use((req: Request, res: Response) => {
   console.warn(`⚠️  404 — ${req.method} ${req.path}`);
   res.status(404).json({ success: false, message: `Route ${req.method} ${req.path} not found` });
 });
 
-// ─── Global error handler ─────────────────────────────────────────────────────
-// In index.ts global error handler
+
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   // Handle Multer errors cleanly
   if (err.name === "MulterError") {

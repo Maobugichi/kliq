@@ -47,7 +47,6 @@ export const verifyEmailToken = async (rawToken: string): Promise<void> => {
   );
 
   let matched: EmailVerificationToken | null = null;
-
   for (const row of rows) {
     const isMatch = await bcrypt.compare(rawToken, row.token_hash);
     if (isMatch) {
@@ -58,19 +57,23 @@ export const verifyEmailToken = async (rawToken: string): Promise<void> => {
 
   if (!matched) throw new Error("Invalid or expired verification token");
 
-  await pool.query("BEGIN");
+  // Must use a client to guarantee BEGIN/COMMIT/ROLLBACK hit the same connection.
+  const client = await pool.connect();
   try {
-    await pool.query(
+    await client.query("BEGIN");
+    await client.query(
       `UPDATE email_verification_tokens SET used = true WHERE id = $1`,
       [matched.id]
     );
-    await pool.query(
+    await client.query(
       `UPDATE users SET email_verified = true, updated_at = NOW() WHERE id = $1`,
       [matched.user_id]
     );
-    await pool.query("COMMIT");
+    await client.query("COMMIT");
   } catch (err) {
-    await pool.query("ROLLBACK");
+    await client.query("ROLLBACK");
     throw err;
+  } finally {
+    client.release();
   }
 };

@@ -36,7 +36,7 @@ export const createCoupon = async (
 ):Promise<Coupon> => {
     const code = input.code.toUpperCase().trim();
 
-    if (input.discount_type === 'percent' && (input.discount_value <= 0 && input.discount_value > 100)) {
+    if (input.discount_type === 'percent' && (input.discount_value <= 0 || input.discount_value > 100)) {
         throw new Error('Percent discount must be between 1 and 100');
     }
 
@@ -93,7 +93,7 @@ export const toggleCoupon = async (
     creatorId:string
 ):Promise<Coupon>=> {
     const{ rows: [coupon] } = await pool.query<Coupon>(
-        `UPDATE coupon SET active = NOT active
+        `UPDATE coupons SET active = NOT active
         WHERE id = $1 AND creator_id = $2
         RETURNING *`,
         [couponId, creatorId]
@@ -110,7 +110,7 @@ export const applyCoupon = async (
     productPriceCents:number
 ):Promise<ApplyCouponResult> => {
     const { rows: [coupon] } = await pool.query<Coupon>(
-        `SELECT * FROM coupons WHERE id = $1 AND creator_id = $2 AND active = true`,
+        `SELECT * FROM coupons WHERE code = $1 AND creator_id = $2 AND active = true`,
         [code.toUpperCase().trim(),creatorId]
     );
 

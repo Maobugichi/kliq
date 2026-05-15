@@ -38,15 +38,43 @@ export const sendPasswordResetEmail = async (
   to: string,
   token: string
 ): Promise<void> => {
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+
   await sendEmail({
     to,
     subject: "Reset your CreatorLock password",
     html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2>Reset your password</h2>
-        <p>Use the token below to reset your password. It expires in 1 hour.</p>
-        <code style="background:#f4f4f4;padding:12px 20px;display:block;border-radius:6px;font-size:16px;letter-spacing:2px">${token}</code>
-        <p style="color:#888;font-size:13px;margin-top:16px">If you didn't request this, ignore this email.</p>
+      <div style="font-family:ui-sans-serif,system-ui,sans-serif;max-width:520px;margin:0 auto;padding:40px 28px;background:#0b0b0c;color:#e5e5e5;border-radius:16px;">
+        
+        <div style="text-align:center;margin-bottom:28px;">
+          <div style="width:42px;height:42px;margin:0 auto 14px;border-radius:999px;background:rgba(255,92,0,0.12);border:1px solid rgba(255,92,0,0.35);color:#FF5C00;font-size:20px;line-height:42px;text-align:center;">
+            🔑
+          </div>
+          <h2 style="margin:0;font-size:22px;color:#ffffff;letter-spacing:-0.02em;">Reset your password</h2>
+          <p style="margin:6px 0 0;font-size:13px;color:#888;letter-spacing:0.12em;text-transform:uppercase;">CreatorLock</p>
+        </div>
+
+        <p style="color:#cfcfcf;line-height:1.7;margin:0 0 18px;">
+          We received a request to reset the password for your account. Click the button below — this link expires in <strong style="color:#fff;">1 hour</strong>.
+        </p>
+
+        <div style="text-align:center;margin:28px 0;">
+          <a href="${resetUrl}"
+             style="display:inline-block;padding:14px 32px;background:#FF5C00;color:#fff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;letter-spacing:-0.01em;">
+            Reset password
+          </a>
+        </div>
+
+        <p style="color:#666;font-size:12px;line-height:1.6;margin:0 0 8px;">
+          Or paste this URL into your browser:
+        </p>
+        <code style="display:block;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);color:#aaa;font-size:11px;padding:10px 14px;border-radius:8px;word-break:break-all;">
+          ${resetUrl}
+        </code>
+
+        <p style="color:#555;font-size:12px;line-height:1.6;margin:24px 0 0;">
+          If you didn't request a password reset, you can safely ignore this email. Your password won't change.
+        </p>
       </div>
     `,
   });

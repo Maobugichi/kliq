@@ -3,9 +3,12 @@ import {
   createCreatorProfile,
   updateCreatorProfile,
   findCreatorBySlug,
+  findCreatorByUserId,
+  isSlugAvailable
 } from "../services/creator.service.js";
 import { listProductsByCreator } from "../services/product.service.js";
 import type { UpdateCreatorProfileInput } from "../types.ts/creator.types.js";
+
 
 
 export const applyAsCreator = async (req: Request, res: Response) => {
@@ -106,6 +109,55 @@ export const getStorefront = async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error("getStorefront error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+
+export const getMyProfile = async (req: Request, res: Response) => {
+  try {
+    const profile = await findCreatorByUserId(req.user!.id);
+    if (!profile) {
+      return res.status(404).json({ success: false, message: "Creator profile not found" });
+    }
+    return res.status(200).json({ success: true, data: profile });
+  } catch (err) {
+    console.error("getMyProfile error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const checkSlug = async (req: Request, res: Response) => {
+  try {
+    const slug = req.query.slug as string;
+    if (!slug) {
+      return res.status(400).json({ success: false, message: "slug is required" });
+    }
+
+    const available = await isSlugAvailable(slug);
+    if (!available) {
+      return res.status(409).json({ success: false, message: "Slug is already taken" });
+    }
+
+    return res.status(200).json({ success: true, message: "Slug is available" });
+  } catch (err) {
+    console.error("checkSlug error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+export const uploadCreatorImage = async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file uploaded" });
+    }
+
+    // uploadThumbnail middleware already streamed the file to Cloudinary
+    // and put the secure_url on req.file.path
+    return res.status(200).json({ url: req.file.path });
+  } catch (err) {
+    console.error("uploadCreatorImage error:", err);
     return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
