@@ -37,6 +37,8 @@ export const sendEmailVerification = async (
     [userId, tokenHash, expiresAt]
   );
 
+  
+
   await sendVerificationEmail(email, rawToken);
 };
 
@@ -57,7 +59,7 @@ export const verifyEmailToken = async (rawToken: string): Promise<void> => {
 
   if (!matched) throw new Error("Invalid or expired verification token");
 
-  // Must use a client to guarantee BEGIN/COMMIT/ROLLBACK hit the same connection.
+  
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

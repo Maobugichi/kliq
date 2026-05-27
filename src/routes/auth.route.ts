@@ -6,18 +6,22 @@ import {
   logout,
   logoutAllController,
   refreshToken,
+  completeOnboarding,
 } from "../controllers/auth.controller.js";
 import { sendEmailVerification, verifyEmailToken } from "../services/emailVerification.service.js";
 import { requestPasswordReset, resetPassword } from "../services/passwordReset.service.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
+import { defaultLimiter, strictLimiter } from "../utils/ratelimiter.js";
 
 const router = Router();
 
-router.post("/auth/signup", signup);
-router.post("/auth/login", login);
+router.post("/auth/signup", strictLimiter, signup);
+router.post("/auth/login", strictLimiter, login);
 router.post("/auth/logout", logout);
 router.post("/auth/logout-all", authenticateToken, logoutAllController);
 router.post("/auth/refresh", refreshToken);
+
+router.post("/auth/onboarding", defaultLimiter, authenticateToken, completeOnboarding);
 
 
 router.post("/auth/verify-email/send", authenticateToken, async (req: Request, res: Response) => {

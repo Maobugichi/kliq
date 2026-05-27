@@ -98,7 +98,7 @@ export const getStorefront = async (req: Request, res: Response) => {
       });
     }
 
-    const products = await listProductsByCreator(profile.user_id, page, limit);
+    const products = await listProductsByCreator(profile.id, page, limit);
 
     return res.status(200).json({
       success: true,

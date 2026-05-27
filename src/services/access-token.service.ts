@@ -45,12 +45,13 @@ export const redeemAccessToken = async (
   rawToken: string,
   ipAddress?: string,
   userAgent?: string
-): Promise<{downloads: { filename: string | null; url:string }[]}> => {
+): Promise<{ downloads: { filename: string | null; url: string }[] }> => {
   const { rows } = await pool.query<AccessToken>(
     `SELECT * FROM access_tokens
      WHERE revoked = false AND expires_at > NOW()`
   );
 
+  console.log(rows)
   let matched: AccessToken | null = null;
 
   for (const row of rows) {
@@ -67,7 +68,6 @@ export const redeemAccessToken = async (
     throw new Error("Download limit reached for this purchase");
   }
 
-
   const { rows: files } = await pool.query<{
     public_id: string;
     original_name: string | null;
@@ -83,52 +83,43 @@ export const redeemAccessToken = async (
 
   if (!files.length) throw new Error("Product file not found");
 
- 
-  await pool.query("BEGIN");
+  // Use a client for the transaction
+  const client = await pool.connect();
   try {
-    await pool.query(
-      `UPDATE access_tokens
-       SET used_count = used_count + 1
-       WHERE id = $1`,
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE access_tokens SET used_count = used_count + 1 WHERE id = $1`,
       [matched.id]
     );
 
-    await pool.query(
+    await client.query(
       `INSERT INTO download_logs
          (buyer_id, product_id, access_token_id, ip_address, user_agent)
        VALUES ($1, $2, $3, $4, $5)`,
-      [
-        matched.buyer_id,
-        matched.product_id,
-        matched.id,
-        ipAddress ?? null,
-        userAgent ?? null,
-      ]
+      [matched.buyer_id, matched.product_id, matched.id, ipAddress ?? null, userAgent ?? null]
     );
 
-    await pool.query("COMMIT");
+    await client.query("COMMIT");
   } catch (err) {
-    await pool.query("ROLLBACK");
+    await client.query("ROLLBACK");
     throw err;
+  } finally {
+    client.release();
   }
 
-  
-  const downloads = files.map((file) => (
-    {
-     filename:file.original_name,
-     url:cloudinary.url(file.public_id, {
-     secure:true,
-     sign_url:true,
-     expires_at:Math.floor(Date.now() / 1000) + 10 * 60,
-     resource_type:'auto'
-    })
-   
-    })
-);
+  const downloads = files.map((file) => ({
+    filename: file.original_name,
+    url: cloudinary.url(file.public_id, {
+      secure: true,
+      sign_url: true,
+      expires_at: Math.floor(Date.now() / 1000) + 10 * 60,
+      resource_type: "auto",
+    }),
+  }));
 
-  return { downloads } 
+  return { downloads };
 };
-
 // ─── Revoke ───────────────────────────────────────────────────────────────────
 
 export const revokeAccessToken = async (orderId: string): Promise<void> => {

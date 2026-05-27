@@ -31,11 +31,11 @@ export interface ApplyCouponResult {
 }
 
 export const createCoupon = async (
-    creatorId:string,
+    userId:string,
     input:CreateCouponInput
 ):Promise<Coupon> => {
     const code = input.code.toUpperCase().trim();
-
+    console.log(userId)
     if (input.discount_type === 'percent' && (input.discount_value <= 0 || input.discount_value > 100)) {
         throw new Error('Percent discount must be between 1 and 100');
     }
@@ -44,13 +44,18 @@ export const createCoupon = async (
         throw new Error('Flat discount must be greater than 0')
     }
 
+    const { rows: [creatorId] } = await pool.query(
+        `SELECT id FROM creator_profiles WHERE user_id = $1`,
+        [userId]
+    )
+
     const { rows: [coupon] } = await pool.query<Coupon>(
         `INSERT INTO coupons
             (creator_id, code, discount_type, discount_value, max_uses, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *`,
         [
-            creatorId,
+            creatorId.id,
             code,
             input.discount_type,
             input.discount_value,
@@ -64,10 +69,16 @@ export const createCoupon = async (
 };
 
 
-export const listCoupons = async (creatorId:string):Promise<Coupon[]> => {
+export const listCoupons = async (userId:string):Promise<Coupon[]> => {
+
+     const { rows: [creatorId] } = await pool.query(
+        `SELECT id FROM creator_profiles WHERE user_id = $1`,
+        [userId]
+    )
+
     const { rows } = await pool.query<Coupon>(
         `SELECT * FROM coupons WHERE creator_id = $1 ORDER BY created_at DESC`,
-        [creatorId]
+        [creatorId.id]
     );
 
     return rows;
@@ -75,11 +86,16 @@ export const listCoupons = async (creatorId:string):Promise<Coupon[]> => {
 
 export const deleteCoupon = async (
     couponId:string,
-    creatorId:string
+    userId:string
 ):Promise<void> => {
+     const { rows: [creatorId] } = await pool.query(
+        `SELECT id FROM creator_profiles WHERE user_id = $1`,
+        [userId]
+    )
+
    const { rowCount } =  await pool.query(
     `DELETE FROM coupons WHERE id = $1 AND creator_id = $2`,
-    [couponId, creatorId]
+    [couponId, creatorId.id]
    );
 
    if (!rowCount || rowCount === 0) {
@@ -90,13 +106,18 @@ export const deleteCoupon = async (
 
 export const toggleCoupon = async (
     couponId:string,
-    creatorId:string
+    userId:string
 ):Promise<Coupon>=> {
+     const { rows: [creatorId] } = await pool.query(
+        `SELECT id FROM creator_profiles WHERE user_id = $1`,
+        [userId]
+    )
+
     const{ rows: [coupon] } = await pool.query<Coupon>(
         `UPDATE coupons SET active = NOT active
         WHERE id = $1 AND creator_id = $2
         RETURNING *`,
-        [couponId, creatorId]
+        [couponId, creatorId.id]
     );
 
     if (!coupon) throw new Error('Coupon not found or unauthorized');

@@ -1,7 +1,7 @@
 export interface AccessTokenPayload {
   id: string;
   email: string;
-  role: string;
+  role?: "creator" | "buyer" | "admin";
 }
 
 export interface RefreshTokenPayload {

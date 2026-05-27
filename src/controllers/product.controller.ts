@@ -9,6 +9,9 @@ import {
   listOwnProducts,
   type CreateProductInput,
   type UpdateProductInput,
+  type PublishedProductSortOption,
+  listPublishedProducts,
+  type ListPublishedProductsInput,
 } from "../services/product.service.js";
 import { findCreatorByUserId } from "../services/creator.service.js";
 
@@ -220,5 +223,43 @@ export const remove = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: err.message });
     console.error("deleteProduct error:", err);
     return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+export const listPublished = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { search, sort, page } = req.query as {
+      search?: string;
+      sort?: string;
+      page?: string;
+    };
+ 
+    // ── Validate sort param ───────────────────────────────────────────────
+    const validSortValues: PublishedProductSortOption[] = ['latest', 'popular'];
+    const resolvedSort: PublishedProductSortOption =
+      sort !== undefined && validSortValues.includes(sort as PublishedProductSortOption)
+        ? (sort as PublishedProductSortOption)
+        : 'latest';
+ 
+    // ── Validate and coerce page param ────────────────────────────────────
+    const parsedPage = page !== undefined ? parseInt(page, 10) : 1;
+    const resolvedPage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+ 
+   
+    const input: ListPublishedProductsInput = {
+      sort: resolvedSort,
+      page: resolvedPage,
+    };
+    if (search !== undefined && search.trim().length > 0) {
+      input.search = search.trim();
+    }
+ 
+    const result = await listPublishedProducts(input);
+ 
+    res.status(200).json({ success: true, data: result });
+  } catch (err) {
+    console.error('listPublished error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

@@ -3,71 +3,96 @@ import pool from "../config/db.js";
 import { generateAccessToken, generateRefreshToken } from "../utils/token.util.js";
 import type { UserProp } from "../types.ts/global.types.js";
 import { CreatorStatus } from "../types.ts/creator.types.js";
-import crypto from "crypto"
-import { sendEmailVerification } from "./emailVerification.service.js";
+import { enqueueEmailVerification } from "../utils/emailqueue.js";
 
-export type SignupInput = Pick<UserProp, "email" | "name" | "role"> & { password: string };
+export type SignupInput = Pick<UserProp, "email"> & { password: string };
 export type LoginInput = Pick<UserProp, "email"> & { password: string };
 
+export type OnboardingInput = {
+  role: "creator" | "buyer";
+  name: string;
+  storeSlug?: string; 
+};
+
+
 export const signupService = async (data: SignupInput) => {
-  const { email, password, name, role } = data;
+  const { email, password } = data;
 
   const existing = await pool.query(
-    "SELECT id FROM users WHERE email = $1",
-    [email]
+    "SELECT id FROM users WHERE email = $1", [email]
   );
 
   if (existing.rowCount && existing.rowCount > 0) {
-    throw new Error("Email already in use");
+    throw new Error("An account with this email already exists");
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
 
+  const { rows: [user] } = await pool.query(
+    `INSERT INTO users (email, password_hash, email_verified, role)
+     VALUES ($1, $2, false, null)
+     RETURNING id, email`,
+    [email, passwordHash]
+  );
+
+  
+  await enqueueEmailVerification(user.id, user.email);
+
+  const accessToken = generateAccessToken({
+    id:user.id,
+    email:user.email,},
+    "1h"
+);
+  const refreshToken = await generateRefreshToken(user.id);
+
+  
+  return { message: "Verification email sent" , user: { id: user.id, email: user.email, }, accessToken, refreshToken };
+};
+
+export const completeOnboardingService = async (
+  userId: string,
+  data: OnboardingInput
+) => {
+  const { role, name, storeSlug } = data;
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
     const { rows: [user] } = await client.query(
-      `INSERT INTO users (email, password_hash, role, name)
-       VALUES ($1, $2, $3, $4)
+      `UPDATE users SET role = $1, name = $2, is_onboarded = true
+       WHERE id = $3
        RETURNING id, email, role, name`,
-      [email, passwordHash, role, name]
+      [role, name, userId]
     );
 
+    if (role === "creator") {
     
-    const baseSlug = name
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
+      const { rows: [conflict] } = await client.query(
+        "SELECT id FROM creator_profiles WHERE store_slug = $1 AND user_id != $2",
+        [storeSlug, userId]
+      );
 
-    
-    let storeSlug = baseSlug;
-    const { rows: [slugConflict] } = await client.query(
-      "SELECT id FROM creator_profiles WHERE store_slug = $1",
-      [storeSlug]
-    );
-    if (slugConflict) {
-      storeSlug = `${baseSlug}-${Math.random().toString(36).slice(2, 7)}`;
+      if (conflict) throw new Error("Slug already taken");
+
+      await client.query(
+        `INSERT INTO creator_profiles (user_id, display_name, store_slug, status)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id) DO UPDATE
+         SET display_name = $2, store_slug = $3`,
+        [userId, name, storeSlug, CreatorStatus.ACTIVE]
+      );
     }
-
-    await client.query(
-      `INSERT INTO creator_profiles (user_id, display_name, store_slug, status)
-       VALUES ($1, $2, $3, $4)`,
-      [user.id, name, storeSlug, CreatorStatus.ACTIVE]
-    );
 
     await client.query("COMMIT");
 
-    const accessToken = generateAccessToken(user);
-    const refreshToken = await generateRefreshToken(user.id);
-
-    sendEmailVerification(user.id, user.email).catch((err) =>
-      console.error("[signup] Failed to send verification email:", err)
-    );
-
-
-    return { user, accessToken, refreshToken };
+    const accessToken = generateAccessToken({
+      id:user.id,
+      email:user.email,
+      role:user.role
+    });
+    //const refreshToken = await generateRefreshToken(user.id);
+    return { user: { id: user.id, email: user.email, role: user.role, name: user.name }, accessToken };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
@@ -93,7 +118,11 @@ export const loginService = async (data: LoginInput) => {
 
   if (!isValid) throw new Error("Invalid credentials");
 
-  const accessToken = generateAccessToken(user);
+  const accessToken = generateAccessToken({
+    id:user.id,
+    email:user.email,
+    role:user.role
+  });
   const refreshToken = await generateRefreshToken(user.id);
 
   return {

@@ -17,6 +17,7 @@ import notificationRouter from "./routes/notification.route.js";
 import waitlistRouter from "./routes/waitlist.routes.js";
 import type multer from "multer";
 import { startEmailWorker } from "./utils/emailqueue.js";
+import cookieParser from "cookie-parser";
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
+app.use(cookieParser());
 
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
@@ -46,10 +48,10 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
-
+app.use("/api", productRouter);
 app.use("/api", authRouter);
 app.use("/api", creatorRouter);
-app.use("/api", productRouter);
+
 app.use("/api", paymentRouter);
 app.use("/api", downloadRouter);
 app.use("/api", dashboardRouter);

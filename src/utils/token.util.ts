@@ -2,16 +2,19 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
 import type { AccessTokenPayload } from "../types.ts/token.types.js";
+import type { SignOptions } from "jsonwebtoken";
 
-export const generateAccessToken = (user: {
+export const generateAccessToken = (payload: {
   id: string;
-  email: string;
-  role: string;
-}): string => {
+  email?: string;
+  role?: "creator" | "buyer" | "admin";
+},
+expiresIn: SignOptions["expiresIn"] = "15m"
+): string => {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    payload,
     process.env.JWT_SECRET as string,
-    { expiresIn: "15m" }
+    { expiresIn }
   );
 };
 

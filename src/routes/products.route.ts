@@ -7,6 +7,7 @@ import {
   publish,
   unpublish,
   remove,
+  listPublished,
 } from "../controllers/product.controller.js";
 import {
   uploadFile,
@@ -23,6 +24,7 @@ import type { RequestHandler } from "express";
 
 const [thumbnailParser, thumbnailUploader] = uploadThumbnail as [RequestHandler, RequestHandler];~
 
+ router.get('/products', listPublished);    
 
 router.get("/products/me", authenticateToken, requireActiveCreator, listMine);
 router.get("/products/:productId", authenticateOptional, getOne);

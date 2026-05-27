@@ -42,6 +42,12 @@ export type UpdateProductInput = Partial<
 >;
 
 
+export type ProductWithCreator = Product & {
+  display_name: string;
+  store_slug: string;
+};
+
+
 const withFiles = async (product: Product): Promise<ProductWithFiles> => {
   const { rows: files } = await pool.query<ProductFile>(
     `SELECT * FROM product_files WHERE product_id = $1 ORDER BY created_at ASC`,
@@ -49,6 +55,8 @@ const withFiles = async (product: Product): Promise<ProductWithFiles> => {
   );
   return { ...product, files };
 };
+
+
 
 
 
@@ -99,6 +107,7 @@ export const listProductsByCreator = async (
 ): Promise<PaginatedProducts> => {
   const offset = (page - 1) * limit;
 
+
   const { rows: products } = await pool.query<Product>(
     `SELECT * FROM products
      WHERE creator_id = $1 AND status = 'published'
@@ -113,9 +122,11 @@ export const listProductsByCreator = async (
     [creatorId]
   );
 
+  
   const total = parseInt(countRow?.count ?? "0", 10);
   const productsWithFiles = await Promise.all(products.map(withFiles));
 
+  
   return {
     products: productsWithFiles,
     total,
@@ -280,4 +291,77 @@ export const deleteProduct = async (
      WHERE id = $1`,
     [productId]
   );
+};
+
+
+
+export type PublishedProductSortOption = 'latest' | 'popular';
+
+export interface ListPublishedProductsInput {
+  search?: string;
+  sort?: PublishedProductSortOption;
+  page?: number;
+}
+
+export const listPublishedProducts = async ({
+  search,
+  sort = 'latest',
+  page = 1,
+}: ListPublishedProductsInput): Promise<PaginatedProducts> => {
+  const limit = 12;
+  const offset = (page - 1) * limit;
+
+  // ── Build WHERE clauses dynamically ──────────────────────────────────────
+  const conditions: string[] = [`p.status = 'published'`];
+  const params: (string | number)[] = [];
+  let paramIndex = 1;
+
+  if (search && search.trim().length > 0) {
+    const term = `%${search.trim()}%`;
+    conditions.push(
+      `(p.title ILIKE $${paramIndex} OR p.description ILIKE $${paramIndex})`
+    );
+    params.push(term);
+    paramIndex++;
+  }
+
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+ 
+  const orderClause =
+    sort === 'popular'
+      ? `ORDER BY (SELECT COUNT(*) FROM orders WHERE orders.product_id = p.id) DESC, p.created_at DESC`
+      : `ORDER BY p.created_at DESC`;
+
+  
+  const { rows: products } = await pool.query<ProductWithCreator>(
+    `SELECT 
+        p.*,
+        c.display_name,
+        c.store_slug
+    FROM products p
+    INNER JOIN creator_profiles c
+        ON p.creator_id = c.id
+    ${whereClause}
+    ${orderClause}
+    LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+    [...params, limit, offset]
+  );
+
+  // ── Total count (same filters, no LIMIT) ─────────────────────────────────
+  const { rows: [countRow] } = await pool.query<{ count: string }>(
+    `SELECT COUNT(*) FROM products p ${whereClause}`,
+    params
+  );
+
+  const total = parseInt(countRow?.count ?? '0', 10);
+  const productsWithFiles = await Promise.all(products.map(withFiles));
+
+  return {
+    products: productsWithFiles,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
 };

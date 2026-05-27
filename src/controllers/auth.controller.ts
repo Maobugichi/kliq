@@ -7,22 +7,66 @@ import {
   refreshTokenService,
   type LoginInput,
   type SignupInput,
-  
+  completeOnboardingService,
 } from "../services/auth.service.js";
 
 type SignupBody = SignupInput;
 type LoginBody = LoginInput;
+
+const ACCESS_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
+  maxAge: 1000 * 60 * 15, 
+};
+
+const REFRESH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
+  maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
+};
 
 export const signup = async (
   req: Request<{}, {}, SignupBody>,
   res: Response
 ) => {
   try {
-    const { email, name, password , role } = req.body;
-    const result = await signupService({ email, name, password, role });
-    return res.status(201).json(result);
+    const { email, password } = req.body;
+    const result = await signupService({ email, password });
+
+    res.cookie("accessToken", result.accessToken, ACCESS_COOKIE_OPTIONS);
+    res.cookie("refreshToken", result.refreshToken, REFRESH_COOKIE_OPTIONS);
+
+    return res.status(201).json({
+      message: result.message,
+      user: result.user,
+    });
   } catch (err: any) {
-    if (err.message === "Email already in use") {
+    if (err.message === "An account with this email already exists") {
+      return res.status(409).json({ message: err.message });
+    }
+    console.error(err);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+export const completeOnboarding = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { role, name, storeSlug } = req.body;
+
+    const result = await completeOnboardingService(userId, { role, name, storeSlug });
+
+    // Re-issue access token with the role now set
+    res.cookie("accessToken", result.accessToken, ACCESS_COOKIE_OPTIONS);
+
+    return res.status(200).json({ user: result.user });
+  } catch (err: any) {
+    if (err.message === "Slug already taken") {
       return res.status(409).json({ message: err.message });
     }
     console.error(err);
@@ -37,7 +81,13 @@ export const login = async (
   try {
     const { email, password } = req.body;
     const result = await loginService({ email, password });
-    return res.status(201).json(result);
+
+    res.cookie("accessToken", result.accessToken, ACCESS_COOKIE_OPTIONS);
+    res.cookie("refreshToken", result.refreshToken, REFRESH_COOKIE_OPTIONS);
+
+    return res.status(200).json({
+      user: result.user,
+    });
   } catch (err: any) {
     if (err.message === "Invalid credentials") {
       return res.status(401).json({ message: err.message });
@@ -49,32 +99,32 @@ export const login = async (
 
 export const refreshToken = async (req: Request, res: Response) => {
   try {
-    const refreshToken = req.cookies?.refreshToken || req.body.refreshToken;
+    const token = req.cookies?.refreshToken;
 
-    if (!refreshToken) {
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: "Refresh token required",
       });
     }
 
-    const result = await refreshTokenService({ refreshToken });
+    const result = await refreshTokenService({ refreshToken: token });
+
+    // Re-issue access token cookie
+    res.cookie("accessToken", result.accessToken, ACCESS_COOKIE_OPTIONS);
 
     return res.status(200).json({
       success: true,
       message: "Token refreshed successfully",
-      data: result,
     });
   } catch (err) {
     console.error("Refresh token error", err);
-
     if (err instanceof Error && err.message === "Invalid refresh token") {
       return res.status(401).json({
         success: false,
         message: "Invalid or expired refresh token",
       });
     }
-
     return res.status(500).json({
       success: false,
       message: "Failed to refresh token",
@@ -84,22 +134,19 @@ export const refreshToken = async (req: Request, res: Response) => {
 
 export const logout = async (req: Request, res: Response) => {
   try {
-    const refreshToken = req.cookies?.refreshToken || req.body.refreshToken;
+    const token = req.cookies?.refreshToken;
 
-    if (!refreshToken) {
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: "Refresh token required",
       });
     }
 
-    const result = await logoutService({ refreshToken });
+    const result = await logoutService({ refreshToken: token });
 
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
+    res.clearCookie("accessToken", ACCESS_COOKIE_OPTIONS);
+    res.clearCookie("refreshToken", REFRESH_COOKIE_OPTIONS);
 
     return res.status(200).json({
       success: true,
@@ -107,21 +154,13 @@ export const logout = async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error("Logout error:", err);
-
     if (
       err instanceof Error &&
       err.message === "Invalid or already revoked refresh token"
     ) {
-      return res.status(401).json({
-        success: false,
-        message: err.message,
-      });
+      return res.status(401).json({ success: false, message: err.message });
     }
-
-    return res.status(500).json({
-      success: false,
-      message: "Logout failed",
-    });
+    return res.status(500).json({ success: false, message: "Logout failed" });
   }
 };
 
@@ -138,11 +177,8 @@ export const logoutAllController = async (req: Request, res: Response) => {
 
     const result = await logoutAllService({ userId });
 
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
+    res.clearCookie("accessToken", ACCESS_COOKIE_OPTIONS);
+    res.clearCookie("refreshToken", REFRESH_COOKIE_OPTIONS);
 
     return res.status(200).json({
       success: true,
@@ -157,6 +193,3 @@ export const logoutAllController = async (req: Request, res: Response) => {
     });
   }
 };
-
-
-

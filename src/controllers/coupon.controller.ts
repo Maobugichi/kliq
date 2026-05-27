@@ -11,7 +11,8 @@ import {
 
 export const create = async (req:Request, res:Response) => {
     try {
-        const creatorId = req.user!.id;
+        const userId = req.user!.id;
+      
         const { code, discount_type, discount_value, max_uses, expires_at } = req.body as CreateCouponInput;
 
         if (!code || ! discount_type || !discount_value === undefined) {
@@ -28,7 +29,9 @@ export const create = async (req:Request, res:Response) => {
             });
         };
 
-        const coupon = await createCoupon(creatorId,{
+
+
+        const coupon = await createCoupon(userId,{
             code,
             discount_type,
             discount_value,
@@ -60,8 +63,8 @@ export const create = async (req:Request, res:Response) => {
 
 export const list = async (req:Request, res:Response) => {
     try  {
-        const creatorId = req.user!.id;
-        const coupons = await listCoupons(creatorId);
+        const userId = req.user!.id;
+        const coupons = await listCoupons(userId);
         return res.status(200).json({ success:true, count: coupons.length, data:coupons });
     } catch (err) {
         console.error('listCoupons error', err);
@@ -71,14 +74,14 @@ export const list = async (req:Request, res:Response) => {
 
 export const remove = async (req:Request, res:Response) => {
     try {
-        const creatorId = req.user!.id;
+        const userId = req.user!.id;
         const couponId = req.params['couponId'] as string;
 
         if (!couponId) {
             return res.status(400).json({ success:false, message:'couponId is required'});
         }
 
-        await deleteCoupon(couponId,creatorId);
+        await deleteCoupon(couponId,userId);
         return res.status(200).json({ success:true, message: 'Coupon deleted'});
     } catch (err) {
         if (err instanceof Error && err.message === 'Coupon not found or unauthorized') {
@@ -91,14 +94,14 @@ export const remove = async (req:Request, res:Response) => {
 
 export const toggle = async (req:Request, res:Response) =>{
     try {
-        const creatorId = req.user!.id;
+        const userId = req.user!.id;
         const couponId = req.params['couponId'] as string;
 
         if (!couponId) {
             return res.status(400).json({ success:false, message:'couponId is required'});
         }
 
-        const coupon = await toggleCoupon(couponId, creatorId);
+        const coupon = await toggleCoupon(couponId, userId);
         return res.status(200).json({
             success:true,
             message:`Coupon ${coupon.active ? 'activated' : 'deactivated'}`,
