@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import pool from '../config/db.js';
+import { sendAffiliateConversionEmail, sendAffiliateInviteEmail } from '../utils/mailer.util.js';
+import { enqueueAffiliateConversion, enqueueAffiliateInvited } from '../utils/emailqueue.js';
 
 export interface Affiliate {
     id: string;
@@ -54,7 +56,37 @@ export const createAffiliate = async (
     );
 
     if (!affiliate) throw new Error('Failed to create affiliate');
+  
+    const { rows: [creator] } = await pool.query<{ name: string; store_slug: string }>(
+        `SELECT u.name, cp.store_slug FROM users u 
+        JOIN creator_profiles cp ON cp.user_id = u.id 
+        WHERE u.id = $1`,
+      [creatorId]
+    );
+
+    if (!creator) throw new Error('Failed to find creator');
+
+    const { rows: [affiliateUser] } = await pool.query<{ name: string; email: string }>(
+    `SELECT name, email FROM users WHERE id = $1`,
+    [affiliate.affiliate_user_id]
+    );
+
+    if (!affiliateUser) throw new Error('Failed to create affiliate');
+
+    const storeUrl = `${process.env.FRONTEND_URL}/store/${creator.store_slug}`;  // ← built here
+
+    await enqueueAffiliateInvited({
+        to: affiliateUser.email,
+        affiliateName: affiliateUser.name,
+        creatorName: creator.name,
+        storeUrl: `${process.env.FRONTEND_URL}/store/${creator.store_slug}`,
+        commissionPercent: affiliate.commission_percent,
+        affiliateCode: affiliate.code,
+    });
+
     return affiliate;
+
+   
 };
 
 export const listAffiliates = async (creatorId: string): Promise<
@@ -151,31 +183,59 @@ export const resolveAffiliateCode = async (
 export const recordAffiliateConversion = async (
     affiliateCode: string,
     orderId: string,
-    orderAmountCents: number
+    orderAmountCents: number,
+    productTitle: string 
 ): Promise<void> => {
     const affiliate = await resolveAffiliateCode(affiliateCode);
-
     if (!affiliate) return;
 
     const commissionCents = Math.floor(orderAmountCents * (affiliate.commission_percent / 100));
 
-    await pool.query('BEGIN');
-
+    const client = await pool.connect();               // ← get a dedicated connection
     try {
-        await pool.query(
+        await client.query("BEGIN");
+
+        await client.query(
             `INSERT INTO affiliate_conversions (affiliate_id, order_id, commission_cents)
-            VALUES ($1, $2, $3)`,
+             VALUES ($1, $2, $3)`,
             [affiliate.id, orderId, commissionCents]
         );
 
-        await pool.query(
+        await client.query(
             `UPDATE affiliates SET total_earned_cents = total_earned_cents + $1 WHERE id = $2`,
             [commissionCents, affiliate.id]
         );
 
-        await pool.query('COMMIT');
+        await client.query("COMMIT");
     } catch (err) {
-        await pool.query('ROLLBACK');
+        await client.query("ROLLBACK");
         throw err;
+    } finally {
+        client.release();    
+        
+
+// after client.release() in recordAffiliateConversion:
+        const { rows: [affiliateUser] } = await pool.query<{ email: string; name: string }>(
+        `SELECT u.email, u.name FROM users u WHERE u.id = $1`,
+        [affiliate.affiliate_user_id]
+        );
+
+        const { rows: [earned] } = await pool.query<{ total: string }>(
+        `SELECT COALESCE(SUM(commission_cents), 0) AS total
+        FROM affiliate_conversions ac
+        JOIN affiliates a ON ac.affiliate_id = a.id
+        WHERE a.affiliate_user_id = $1`,
+        [affiliate.affiliate_user_id]
+        );
+
+        if (affiliateUser) {
+       await enqueueAffiliateConversion({
+            to: affiliateUser.email,
+            affiliateName: affiliateUser.name,
+            productTitle,
+            commissionCents,
+            totalEarnedCents: parseInt(earned?.total ?? '0', 10),
+        });
+        }                          
     }
 };

@@ -4,7 +4,9 @@ import { redeemAccessToken } from "../services/access-token.service.js";
 
 export const downloadFile = async (req: Request, res: Response) => {
   try {
-    const token = req.params["token"] as string;
+     const token = req.path.split("/").pop() ?? "";
+
+   
 
     if (!token) {
       return res.status(400).json({ success: false, message: "Token is required" });
@@ -18,10 +20,8 @@ export const downloadFile = async (req: Request, res: Response) => {
     const userAgent = req.headers["user-agent"] ?? undefined;
 
     const { downloads } = await redeemAccessToken(token, ipAddress, userAgent);
-
-    if (downloads.length === 1){
-      return res.redirect(downloads[0]!.url);
-    }
+    
+   
     return res.status(200).json({
       success:true,
       data:downloads

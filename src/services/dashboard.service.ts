@@ -41,11 +41,19 @@ export interface DashboardData {
 
 
 export const getCreatorDashboard = async (
-  creatorId: string,
+  userId: string,
   period: "7d" | "30d" | "90d" = "30d"
 ): Promise<DashboardData> => {
   const periodDays = { "7d": 7, "30d": 30, "90d": 90 }[period];
 
+  const { rows: [profile] } = await pool.query<{ user_id: string }>(
+    `SELECT user_id FROM creator_profiles WHERE user_id = $1`,
+    [userId]
+  );
+
+  if (!profile) throw new Error('Creator profile not found');
+
+  const creatorId = profile.user_id;
 
   const { rows: [summary] } = await pool.query<{
     total_revenue: string;
@@ -118,10 +126,10 @@ export const getCreatorDashboard = async (
      JOIN products p ON o.product_id = p.id
      WHERE p.creator_id = $1
        AND o.status = 'paid'
-       AND o.created_at >= NOW() - INTERVAL '${periodDays} days'
+       AND o.created_at >= NOW() - ($2 || ' days')::interval 
      GROUP BY TO_CHAR(o.created_at, 'YYYY-MM-DD')
      ORDER BY date ASC`,
-    [creatorId]
+    [creatorId, periodDays]
   );
 
   return {

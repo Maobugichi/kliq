@@ -4,7 +4,8 @@ import {
   updateCreatorProfile,
   findCreatorBySlug,
   findCreatorByUserId,
-  isSlugAvailable
+  isSlugAvailable,
+  getBuyersForCreator
 } from "../services/creator.service.js";
 import { listProductsByCreator } from "../services/product.service.js";
 import type { UpdateCreatorProfileInput } from "../types.ts/creator.types.js";
@@ -114,6 +115,16 @@ export const getStorefront = async (req: Request, res: Response) => {
 };
 
 
+
+export const getBuyers = async (req: Request, res: Response) => {
+  try {
+    const buyers = await getBuyersForCreator(req.user!.id);
+    return res.status(200).json({ buyers });
+  } catch (err) {
+    console.error('getBuyers error:', err);
+    return res.status(500).json({ success: false, message: 'Internal Server Error' });
+  }
+};
 
 export const getMyProfile = async (req: Request, res: Response) => {
   try {

@@ -37,4 +37,17 @@ export type UpdateCreatorProfileInput = Partial<
   >
 >;
 
-
+export interface BuyerRow {
+  buyer_id: string;
+  name: string | null;
+  buyer_email: string;
+  profile_image: string | null;
+  product_id: string;
+  product_title: string;
+  product_slug: string;
+  order_id: string;
+  amount_cents: number;
+  currency: string;
+  status: string;
+  purchased_at: string;
+}

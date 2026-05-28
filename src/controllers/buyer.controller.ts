@@ -7,7 +7,7 @@ export const getLibrary = async(req:Request,res:Response) => {
         const buyerId = req.user!.id;
         
         const library = await getBuyerLibrary(buyerId);
-        console.log(library)
+        
         return res.status(200).json({
             success:true,
             count:library.length,
@@ -25,7 +25,7 @@ export const resendDownload = async (req:Request, res:Response) => {
         const buyerId = req.user!.id;
         const orderId = req.params['orderId'] as string;
 
-        console.log(orderId)
+        
         if (!orderId) {
             return res.status(400).json({
                 success:false,

@@ -1,5 +1,5 @@
 import pool from "../config/db.js";
-import { CreatorStatus, type CreatorProfile, type UpdateCreatorProfileInput } from "../types.ts/creator.types.js";
+import { CreatorStatus, type BuyerRow, type CreatorProfile, type UpdateCreatorProfileInput } from "../types.ts/creator.types.js";
 
 export const findCreatorByUserId = async (
   userId: string
@@ -136,4 +136,40 @@ export const isSlugAvailable = async (slug: string): Promise<boolean> => {
     [slug]
   );
   return !existing;
+};
+
+
+export const getBuyersForCreator = async (userId: string): Promise<BuyerRow[]> => {
+  // Resolve the creator profile id from the logged-in user's id
+  const { rows: [profile] } = await pool.query<{ id: string }>(
+    `SELECT id FROM creator_profiles WHERE user_id = $1`,
+    [userId]
+  );
+
+  if (!profile) throw new Error('Creator profile not found');
+
+  console.log('[getBuyers] resolved creator profile id:', profile.id);
+
+  // creator.service.ts
+  const { rows } = await pool.query(
+    `SELECT
+      u.id                          AS buyer_id,
+      u.name                        AS name,
+      u.email                       AS email,
+      u.profile_image,
+      COUNT(o.id)                   AS total_purchases,
+      SUM(o.amount_cents)           AS total_spent_cents,
+      MAX(o.created_at)             AS last_purchase_at
+    FROM orders o
+    JOIN users    u ON u.id = o.buyer_id
+    JOIN products p ON p.id = o.product_id
+    WHERE p.creator_id = $1
+      AND o.status = 'paid'
+    GROUP BY u.id, u.name, u.email, u.profile_image
+    ORDER BY last_purchase_at DESC`,
+    [profile.id]
+  );
+
+    
+  return rows;
 };

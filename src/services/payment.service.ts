@@ -5,11 +5,10 @@ import { generateAccessToken } from "./access-token.service.js";
 import { sendDownloadEmail } from "../utils/mailer.util.js";
 import { applyCoupon, incrementCouponUsage } from "./coupon.service.js";
 import { notifyNewSale } from "./notification.service.js";
+import { enqueueOrderDownload, enqueueOrderSale } from "../utils/emailqueue.js";
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY as string;
 const PAYSTACK_BASE = "https://api.paystack.co";
-
-
 
 export interface Order {
   id: string;
@@ -40,8 +39,6 @@ export interface InitiatePaymentResult {
   finalPriceCents?: number;
 }
 
-
-
 const paystackRequest = async (
   method: "GET" | "POST",
   path: string,
@@ -61,48 +58,43 @@ const paystackRequest = async (
   return data;
 };
 
-
-
 export const initiatePayment = async ({
   buyerId,
   productId,
   email,
   couponCode,
-  affiliateCode
+  affiliateCode,
 }: InitiatePaymentInput): Promise<InitiatePaymentResult> => {
-  const { rows: [product] } = await pool.query<{
+  const {
+    rows: [product],
+  } = await pool.query<{
     id: string;
     price_cents: number;
     status: string;
     title: string;
     creator_id: string;
-  }>(
-    `SELECT id, price_cents, status, title, creator_id FROM products WHERE id = $1`,
-    [productId]
-  );
+  }>(`SELECT id, price_cents, status, title, creator_id FROM products WHERE id = $1`, [
+    productId,
+  ]);
 
   if (!product) throw new Error("Product not found");
   if (product.status !== "published") throw new Error("Product is not available");
 
-  const { rows: [existingOrder] } = await pool.query<{ id: string }>(
-    `SELECT id FROM orders
-     WHERE buyer_id = $1 AND product_id = $2 AND status = 'paid'`,
+  const {
+    rows: [existingOrder],
+  } = await pool.query<{ id: string }>(
+    `SELECT id FROM orders WHERE buyer_id = $1 AND product_id = $2 AND status = 'paid'`,
     [buyerId, productId]
   );
 
   if (existingOrder) throw new Error("You already own this product");
 
-  // ── Apply coupon if provided ───────────────────────────────────────────────
   let finalPriceCents = product.price_cents;
   let discountCents = 0;
   let couponId: string | null = null;
 
   if (couponCode && product.price_cents > 0) {
-    const couponResult = await applyCoupon(
-      couponCode,
-      product.creator_id,
-      product.price_cents
-    );
+    const couponResult = await applyCoupon(couponCode, product.creator_id, product.price_cents);
     finalPriceCents = couponResult.final_price_cents;
     discountCents = couponResult.discount_cents;
     couponId = couponResult.coupon_id;
@@ -110,11 +102,18 @@ export const initiatePayment = async ({
 
   const ref = `cl-${buyerId.slice(0, 8)}-${Date.now()}`;
 
-  
+  // ── Free order ─────────────────────────────────────────────────────────────
   if (finalPriceCents === 0) {
-    await pool.query("BEGIN");
+    const client = await pool.connect();
+    let rawToken: string;
+    let buyerName: string;
+
     try {
-      const { rows: [order] } = await pool.query<{ id: string }>(
+      await client.query("BEGIN");
+
+      const {
+        rows: [order],
+      } = await client.query<{ id: string }>(
         `INSERT INTO orders (buyer_id, product_id, amount_cents, paystack_ref, status)
          VALUES ($1, $2, 0, $3, 'paid')
          RETURNING id`,
@@ -123,23 +122,31 @@ export const initiatePayment = async ({
 
       if (!order) throw new Error("Failed to create order");
 
-      const rawToken = await generateAccessToken(buyerId, productId, order.id);
+      rawToken = await generateAccessToken(buyerId, productId, order.id,client);
 
-      const { rows: [buyer] } = await pool.query<{ name: string }>(
-        `SELECT name FROM users WHERE id = $1`,
-        [buyerId]
-      );
+      const {
+        rows: [buyer],
+      } = await client.query<{ name: string }>(`SELECT name FROM users WHERE id = $1`, [buyerId]);
 
-      await sendDownloadEmail(email, buyer?.name ?? "there", product.title, rawToken);
+      buyerName = buyer?.name ?? "there";
 
-    
       if (couponId) await incrementCouponUsage(couponId);
 
-      await pool.query("COMMIT");
+      await client.query("COMMIT");
     } catch (err) {
-      await pool.query("ROLLBACK");
+      await client.query("ROLLBACK");
       throw err;
+    } finally {
+      client.release();
     }
+   
+
+    await enqueueOrderDownload({
+      email,
+      name: buyerName,
+      productTitle: product.title,
+      token: rawToken!,
+    });
 
     return {
       paymentUrl: null,
@@ -151,12 +158,22 @@ export const initiatePayment = async ({
     };
   }
 
-  
+    // ── Affiliate validation ────────────────────────────────────────────────────
+  let resolvedAffiliate = null;
+  if (affiliateCode) {
+    resolvedAffiliate = await resolveAffiliateCode(affiliateCode);
+    if (!resolvedAffiliate) throw new Error("Invalid or inactive affiliate code");
+
+     
+  }
+
+
   await pool.query(
-    `INSERT INTO orders (buyer_id, product_id, amount_cents, paystack_ref, status,affiliate_code)
-     VALUES ($1, $2, $3, $4, 'pending')`,
-    [buyerId, productId, finalPriceCents, ref, affiliateCode ?? null]
+    `INSERT INTO orders (buyer_id, product_id, amount_cents, paystack_ref, status, affiliate_code)
+    VALUES ($1, $2, $3, $4, 'pending', $5)`,
+    [buyerId, productId, finalPriceCents, ref, resolvedAffiliate?.code ?? null]
   );
+  
 
   const data = await paystackRequest("POST", "/transaction/initialize", {
     email,
@@ -170,12 +187,8 @@ export const initiatePayment = async ({
     },
   });
 
-   
   if (couponId) {
-    await pool.query(
-      `UPDATE orders SET coupon_id = $1 WHERE paystack_ref = $2`,
-      [couponId, ref]
-    );
+    await pool.query(`UPDATE orders SET coupon_id = $1 WHERE paystack_ref = $2`, [couponId, ref]);
   }
 
   return {
@@ -188,20 +201,10 @@ export const initiatePayment = async ({
   };
 };
 
-// ─── Verify webhook signature ─────────────────────────────────────────────────
-
-export const verifyWebhookSignature = (
-  rawBody: Buffer,
-  signature: string
-): boolean => {
-  const hash = crypto
-    .createHmac("sha512", PAYSTACK_SECRET)
-    .update(rawBody)
-    .digest("hex");
+export const verifyWebhookSignature = (rawBody: Buffer, signature: string): boolean => {
+  const hash = crypto.createHmac("sha512", PAYSTACK_SECRET).update(rawBody).digest("hex");
   return hash === signature;
 };
-
-// ─── Handle webhook ───────────────────────────────────────────────────────────
 
 export const handlePaystackWebhook = async (
   event: string,
@@ -210,65 +213,71 @@ export const handlePaystackWebhook = async (
   if (event !== "charge.success") return;
 
   const ref = data.reference as string;
-  
 
-  const { rows: [order] } = await pool.query<Order & {  
-    coupon_id: string | null;
-    affiliate_code: string | null; }>(
+  const {
+    rows: [order],
+  } = await pool.query<Order & { coupon_id: string | null; affiliate_code: string | null }>(
     `SELECT * FROM orders WHERE paystack_ref = $1 AND status = 'pending'`,
     [ref]
   );
 
   if (!order) return;
 
-  const { rows: [buyer] } = await pool.query<{ email: string; name: string }>(
+  const {
+    rows: [buyer],
+  } = await pool.query<{ email: string; name: string }>(
     `SELECT email, name FROM users WHERE id = $1`,
     [order.buyer_id]
   );
 
-  const { rows: [product] } = await pool.query<{ title: string; creator_id:string; }>(
-    `SELECT  title, creator_id, FROM products WHERE id = $1`,
+  const {
+    rows: [product],
+  } = await pool.query<{ title: string; creator_id: string }>(
+    `SELECT title, creator_id FROM products WHERE id = $1`,
     [order.product_id]
   );
 
-  await pool.query("BEGIN");
+  if (!product) throw new Error('Product not found')
+
+  const client = await pool.connect();
+  let rawToken: string;
 
   try {
-    await pool.query(
-      `UPDATE orders SET status = 'paid', updated_at = NOW() WHERE id = $1`,
+    await client.query("BEGIN");
+
+    // Idempotency guard: only proceed if still pending
+    const { rowCount } = await client.query(
+      `UPDATE orders SET status = 'paid', updated_at = NOW()
+       WHERE id = $1 AND status = 'pending'`,
       [order.id]
     );
 
-    const rawToken = await generateAccessToken(
-      order.buyer_id,
-      order.product_id,
-      order.id
-    );
-
-    if (buyer && product) {
-      await sendDownloadEmail(buyer.email, buyer.name, product.title, rawToken);
-
-      await notifyNewSale(
-        product.creator_id,
-        product.title,
-        order.amount_cents,
-        buyer.name
-      );
+    if (rowCount === 0) {
+      await client.query("ROLLBACK");
+      return;
     }
-   
+
+    rawToken = await generateAccessToken(order.buyer_id, order.product_id, order.id,client);
+
     if (order.affiliate_code) {
-      await recordAffiliateConversion(order.affiliate_code, order.id, order.amount_cents);
+      await recordAffiliateConversion(order.affiliate_code, order.id, order.amount_cents,product.title);
     }
 
-
-    // Increment coupon usage if one was applied
     if (order.coupon_id) {
       await incrementCouponUsage(order.coupon_id);
     }
 
-    await pool.query("COMMIT");
+    await client.query("COMMIT");
   } catch (err) {
-    await pool.query("ROLLBACK");
+    await client.query("ROLLBACK");
     throw err;
+  } finally {
+    client.release();
+  }
+
+  // Send notifications after commit
+  if (buyer && product) {
+    await enqueueOrderDownload({ email: buyer.email, name: buyer.name, productTitle: product.title, token: rawToken! });
+    await enqueueOrderSale({ creatorId: product.creator_id, productTitle: product.title, amountCents: order.amount_cents, buyerName: buyer.name });
   }
 };

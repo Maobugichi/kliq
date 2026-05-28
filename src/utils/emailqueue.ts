@@ -3,9 +3,13 @@ import { Redis } from "ioredis";
 import {
   sendWaitlistConfirmationEmail,
   sendPasswordResetEmail,
+  sendAffiliateInviteEmail,
+  sendAffiliateConversionEmail,
+  sendDownloadEmail,
   
 } from "./mailer.util.js";
 import { sendEmailVerification } from "../services/emailVerification.service.js";
+import { notifyNewSale } from "../services/notification.service.js";
 
 if (!process.env.UPSTASH_REDIS_URL) {
   throw new Error("UPSTASH_REDIS_URL is not set.");
@@ -20,9 +24,19 @@ export const connection = new Redis(process.env.UPSTASH_REDIS_URL, {
 // ─── Job payload types (discriminated union) ──────────────────────────────────
 
 export type EmailJobData =
-  | { name: "waitlist.confirmation";  payload: { email: string } }
-  | { name: "email.verification";     payload: { id: string; email: string } }
-  | { name: "password.reset";         payload: { email: string; token: string } }
+  | { name: "waitlist.confirmation";       payload: { email: string } }
+  | { name: "email.verification";          payload: { id: string; email: string } }
+  | { name: "password.reset";              payload: { email: string; token: string } }
+  | { name: "affiliate.invited";           payload: {
+        to: string; affiliateName: string; creatorName: string;
+        storeUrl: string; commissionPercent: number; affiliateCode: string;
+      }}
+  | { name: "affiliate.conversion";        payload: {
+        to: string; affiliateName: string; productTitle: string;
+        commissionCents: number; totalEarnedCents: number;
+      }}
+  | { name: "order.download";   payload: { email: string; name: string; productTitle: string; token: string } }
+  | { name: "order.sale";       payload: { creatorId: string; productTitle: string; amountCents: number; buyerName: string } }    
  
 
 export type EmailJobName = EmailJobData["name"];
@@ -55,7 +69,17 @@ export const enqueueEmailVerification = (id: string, email: string) =>
 export const enqueuePasswordReset = (email: string, token: string) =>
   enqueue({ name: "password.reset", payload: { email, token } });
 
+export const enqueueAffiliateInvited = (payload: Extract<EmailJobData, { name: "affiliate.invited" }>["payload"]) =>
+  enqueue({ name: "affiliate.invited", payload });
 
+export const enqueueAffiliateConversion = (payload: Extract<EmailJobData, { name: "affiliate.conversion" }>["payload"]) =>
+  enqueue({ name: "affiliate.conversion", payload });
+
+export const enqueueOrderDownload = (payload: Extract<EmailJobData, { name: "order.download" }>["payload"]) =>
+  enqueue({ name: "order.download", payload });
+
+export const enqueueOrderSale = (payload: Extract<EmailJobData, { name: "order.sale" }>["payload"]) =>
+  enqueue({ name: "order.sale", payload });
 
 export const startEmailWorker = (): Worker<EmailJobData> => {
   const worker = new Worker<EmailJobData>(
@@ -75,7 +99,43 @@ export const startEmailWorker = (): Worker<EmailJobData> => {
         case "password.reset":
           await sendPasswordResetEmail(payload.email, payload.token);
           break;
+        case "affiliate.invited":
+          await sendAffiliateInviteEmail(
+            payload.to,
+            payload.affiliateName,
+            payload.creatorName,
+            payload.storeUrl,
+            payload.commissionPercent,
+            payload.affiliateCode
+          );
+          break;
+        case "affiliate.conversion":
+          await sendAffiliateConversionEmail(
+            payload.to,
+            payload.affiliateName,
+            payload.productTitle,
+            payload.commissionCents,
+            payload.totalEarnedCents
+          );
+          break;
 
+        case "order.download":
+          await sendDownloadEmail(
+            payload.email,
+            payload.name,
+            payload.productTitle,
+            payload.token
+          );
+          break;
+
+        case "order.sale":
+          await notifyNewSale(
+            payload.creatorId,
+            payload.productTitle,
+            payload.amountCents,
+            payload.buyerName
+          );
+          break;
         
 
         default: {

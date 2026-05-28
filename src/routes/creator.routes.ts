@@ -6,6 +6,7 @@ import {
   getMyProfile,
   checkSlug,
   uploadCreatorImage,
+  getBuyers
 } from "../controllers/creator.controller.js";
 import type { RequestHandler } from "express";
 import { authenticateToken } from "../middleware/auth.middleware.js";
@@ -23,8 +24,8 @@ router.get("/creator/check-slug", authenticateToken, requireActiveCreator, check
 
 router.post("/creator/apply", authenticateToken, applyAsCreator);
 router.patch("/creator/me", authenticateToken, requireActiveCreator, updateMyProfile);
-
-
+// creator.routes.ts
+router.get('/creator/buyers', authenticateToken,requireActiveCreator, getBuyers);
 router.post("/creator/upload-image", authenticateToken, requireActiveCreator, thumbnailParser, thumbnailUploader, uploadCreatorImage);
 
 export default router;

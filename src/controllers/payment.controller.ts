@@ -4,6 +4,7 @@ import {
   verifyWebhookSignature,
   handlePaystackWebhook,
 } from "../services/payment.service.js";
+import { resolveAffiliateCode } from "../services/affiliate.service.js";
 
 export const initiate = async (req: Request, res: Response) => {
   try {
@@ -19,6 +20,8 @@ export const initiate = async (req: Request, res: Response) => {
     if (!product_id) {
       return res.status(400).json({ success: false, message: "product_id is required" });
     }
+
+    //const resolvedAffiliate = await resolveAffiliateCode(affiliate_code)
 
     const result = await initiatePayment({
       buyerId,

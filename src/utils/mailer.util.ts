@@ -228,3 +228,96 @@ export const sendWaitlistConfirmationEmail = async (
     html,
   });
 };
+
+
+export const sendAffiliateInviteEmail = async (
+  to: string,
+  affiliateName: string,
+  creatorName: string,
+  productPlatformUrl: string,
+  commissionPercent: number,
+  affiliateCode: string
+): Promise<void> => {
+  const dashboardUrl = `${process.env.FRONTEND_URL}/dashboard/affiliate`;
+
+  const html = baseLayout(`
+    ${heading("🤝", "You've been added as an affiliate", "CreatorLock")}
+
+    ${text(`Hey <b>${affiliateName}</b>, <b>${creatorName}</b> has added you as an affiliate on CreatorLock with a <b>${commissionPercent}% commission</b> on every sale you refer.`)}
+
+    ${text("Share the link below with your audience. When someone buys through it, you earn automatically.")}
+
+    <div style="margin:18px 0;">
+      <p style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Your referral link</p>
+      ${codeBox(`${productPlatformUrl}?ref=${affiliateCode}`)}
+    </div>
+
+    ${button("View Your Affiliate Dashboard", dashboardUrl)}
+
+    ${text("You can track your conversions and earnings anytime from your dashboard.")}
+  `);
+
+  await sendEmail({
+    to,
+    subject: `${creatorName} added you as an affiliate — earn ${commissionPercent}% per sale`,
+    html,
+  });
+};
+
+
+export const sendAffiliateConversionEmail = async (
+  to: string,
+  affiliateName: string,
+  productTitle: string,
+  commissionCents: number,
+  totalEarnedCents: number
+): Promise<void> => {
+  const dashboardUrl = `${process.env.FRONTEND_URL}/dashboard/affiliate`;
+  const commission = (commissionCents / 100).toFixed(2);
+  const totalEarned = (totalEarnedCents / 100).toFixed(2);
+
+  const html = baseLayout(`
+    ${heading("💸", "You just earned a commission", "CreatorLock")}
+
+    ${text(`Hey <b>${affiliateName}</b>, someone just purchased <b>${productTitle}</b> through your referral link.`)}
+
+    <div style="
+      display:flex;
+      gap:12px;
+      margin:20px 0;
+    ">
+      <div style="
+        flex:1;
+        background:rgba(255,92,0,0.06);
+        border:1px solid rgba(255,92,0,0.15);
+        border-radius:12px;
+        padding:14px;
+        text-align:center;
+      ">
+        <p style="margin:0;color:#FF5C00;font-size:22px;font-weight:700;">$${commission}</p>
+        <p style="margin:4px 0 0;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">This sale</p>
+      </div>
+      <div style="
+        flex:1;
+        background:rgba(255,255,255,0.03);
+        border:1px solid rgba(255,255,255,0.06);
+        border-radius:12px;
+        padding:14px;
+        text-align:center;
+      ">
+        <p style="margin:0;color:#fff;font-size:22px;font-weight:700;">$${totalEarned}</p>
+        <p style="margin:4px 0 0;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">Total earned</p>
+      </div>
+    </div>
+
+    ${button("View Your Earnings", dashboardUrl)}
+
+    ${text("Commissions are tracked and paid out by the creator. Check your dashboard for payout status.")}
+  `);
+
+  await sendEmail({
+    to,
+    subject: `You earned $${commission} — ${productTitle} sale via your link`,
+    html,
+  });
+};
