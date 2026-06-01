@@ -233,7 +233,7 @@ export const publishProduct = async (
   const { rows: [product] } = await pool.query<Product>(
     `UPDATE products
      SET status = 'published', updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1 AND creator_id = $2 AND status = 'draft'
+    WHERE id = $1 AND creator_id = $2 AND (status = 'draft' OR status = 'unpublished')
      RETURNING *`,
     [productId, creatorId]
   );

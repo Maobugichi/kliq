@@ -3,6 +3,7 @@ import {
   initiatePayment,
   verifyWebhookSignature,
   handlePaystackWebhook,
+  verifyTransaction,
 } from "../services/payment.service.js";
 import { resolveAffiliateCode } from "../services/affiliate.service.js";
 
@@ -78,5 +79,17 @@ export const webhook = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("webhook error:", err);
     return res.status(200).json({ received: true });
+  }
+};
+
+// payment.controller.ts
+export const verify = async (req: Request, res: Response) => {
+  try {
+    const reference = req.params.reference as string;
+    const result = await verifyTransaction(reference);
+    return res.status(200).json({ success: true, data: result });
+  } catch (err) {
+    console.error("verify error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };

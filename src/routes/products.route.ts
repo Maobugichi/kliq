@@ -26,10 +26,10 @@ const [thumbnailParser, thumbnailUploader] = uploadThumbnail as [RequestHandler,
 
  router.get('/products', listPublished);    
 
-router.get("/products/me", authenticateToken, requireActiveCreator, listMine);
-router.get("/products/:productId", authenticateOptional, getOne);
+ router.get("/products/me", authenticateToken, requireActiveCreator, listMine);
+ router.get("/products/:productId", authenticateOptional, getOne);
 
-router.post("/products", authenticateToken, requireActiveCreator, create);
+ router.post("/products", authenticateToken, requireActiveCreator, create);
 router.patch(
   "/products/:productId",
   authenticateToken,

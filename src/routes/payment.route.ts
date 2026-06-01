@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { initiate, webhook } from "../controllers/payment.controller.js";
+import { initiate, verify, webhook } from "../controllers/payment.controller.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 
 const router = Router();
@@ -12,4 +12,8 @@ router.post(
 
 router.post("/payments/initiate", authenticateToken, initiate);
 
+// payment.route.ts
+router.get("/payments/verify/:reference", authenticateToken, verify);
+
 export default router;
+

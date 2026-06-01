@@ -46,14 +46,14 @@ export const getCreatorDashboard = async (
 ): Promise<DashboardData> => {
   const periodDays = { "7d": 7, "30d": 30, "90d": 90 }[period];
 
-  const { rows: [profile] } = await pool.query<{ user_id: string }>(
-    `SELECT user_id FROM creator_profiles WHERE user_id = $1`,
+  const { rows: [profile] } = await pool.query<{ id: string }>(
+    `SELECT id FROM creator_profiles WHERE user_id = $1`,
     [userId]
   );
 
   if (!profile) throw new Error('Creator profile not found');
 
-  const creatorId = profile.user_id;
+  const creatorId = profile.id;
 
   const { rows: [summary] } = await pool.query<{
     total_revenue: string;
@@ -156,8 +156,16 @@ export interface BuyerRow {
 }
 
 export const getCreatorBuyers = async (
-  creatorId: string
+  userId: string
 ): Promise<BuyerRow[]> => {
+  const { rows: [profile] } = await pool.query<{ id: string }>(
+    `SELECT id FROM creator_profiles WHERE user_id = $1`,
+    [userId]
+  );
+
+  if (!profile) throw new Error('Creator profile not found');
+
+  const creatorId = profile.id;
   const { rows } = await pool.query<BuyerRow>(
     `SELECT
        u.id AS buyer_id,

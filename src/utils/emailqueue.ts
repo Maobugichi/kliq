@@ -15,13 +15,18 @@ if (!process.env.UPSTASH_REDIS_URL) {
   throw new Error("UPSTASH_REDIS_URL is not set.");
 }
 
-export const connection = new Redis(process.env.UPSTASH_REDIS_URL, {
+export const connection = new Redis({
+  host: "pan-balance-shoes-48064.db.redis.io",
+  port: 14902,
+  username: "default",
+  password: process.env.REDIS_PASSWORD,
+  //tls: { rejectUnauthorized: false },
   maxRetriesPerRequest: null,
-  tls: { rejectUnauthorized: false },
+  enableReadyCheck: false,
   retryStrategy: (times: number) => Math.min(times * 200, 5_000),
 });
 
-// ─── Job payload types (discriminated union) ──────────────────────────────────
+
 
 export type EmailJobData =
   | { name: "waitlist.confirmation";       payload: { email: string } }
@@ -48,8 +53,8 @@ export const emailQueue = new Queue<EmailJobData>("emails", {
   defaultJobOptions: {
     attempts: 4,
     backoff: { type: "exponential", delay: 5_000 },
-    removeOnComplete: { count: 200 },
-    removeOnFail: { count: 500 },
+    removeOnComplete: { count: 50 },
+    removeOnFail: { count: 100 },
   },
 });
 

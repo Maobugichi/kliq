@@ -7,6 +7,7 @@ import { applyCoupon, incrementCouponUsage } from "./coupon.service.js";
 import { notifyNewSale } from "./notification.service.js";
 import { enqueueOrderDownload, enqueueOrderSale } from "../utils/emailqueue.js";
 
+
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY as string;
 const PAYSTACK_BASE = "https://api.paystack.co";
 
@@ -100,7 +101,7 @@ export const initiatePayment = async ({
     couponId = couponResult.coupon_id;
   }
 
-  const ref = `cl-${buyerId.slice(0, 8)}-${Date.now()}`;
+  const ref = `cl-${crypto.randomUUID()}`;
 
   // ── Free order ─────────────────────────────────────────────────────────────
   if (finalPriceCents === 0) {
@@ -169,10 +170,25 @@ export const initiatePayment = async ({
 
 
   await pool.query(
-    `INSERT INTO orders (buyer_id, product_id, amount_cents, paystack_ref, status, affiliate_code)
-    VALUES ($1, $2, $3, $4, 'pending', $5)`,
-    [buyerId, productId, finalPriceCents, ref, resolvedAffiliate?.code ?? null]
-  );
+    `INSERT INTO orders (
+        buyer_id,
+        product_id,
+        amount_cents,
+        currency,
+        paystack_ref,
+        status,
+        affiliate_code
+    )
+    VALUES ($1,$2,$3,$4,$5,'pending',$6)`,
+    [
+      buyerId,
+      productId,
+      finalPriceCents,
+      "NGN",
+      ref,
+      resolvedAffiliate?.code ?? null,
+    ]
+    );
   
 
   const data = await paystackRequest("POST", "/transaction/initialize", {
@@ -203,7 +219,10 @@ export const initiatePayment = async ({
 
 export const verifyWebhookSignature = (rawBody: Buffer, signature: string): boolean => {
   const hash = crypto.createHmac("sha512", PAYSTACK_SECRET).update(rawBody).digest("hex");
-  return hash === signature;
+  return crypto.timingSafeEqual(
+    Buffer.from(hash),
+    Buffer.from(signature)
+  );
 };
 
 export const handlePaystackWebhook = async (
@@ -214,14 +233,60 @@ export const handlePaystackWebhook = async (
 
   const ref = data.reference as string;
 
+  if (!ref) {
+    throw new Error("Missing transaction reference");
+  }
+
   const {
     rows: [order],
-  } = await pool.query<Order & { coupon_id: string | null; affiliate_code: string | null }>(
-    `SELECT * FROM orders WHERE paystack_ref = $1 AND status = 'pending'`,
+  } = await pool.query<
+    Order & {
+      coupon_id: string | null;
+      affiliate_code: string | null;
+    }
+  >(
+    `SELECT *
+    FROM orders
+    WHERE paystack_ref = $1
+    AND status = 'pending'`,
     [ref]
   );
 
-  if (!order) return;
+  if (!order) {
+    return;
+  }
+
+  const verifiedTx = await verifyTransaction(ref);
+
+  const { data:verifiedData } = verifiedTx
+
+  if (verifiedData.status !== "success") {
+    throw new Error(
+      `Paystack verification failed for ${ref}`
+    );
+  }
+
+  if (
+    Number(verifiedData.amount) !==
+    Number(order.amount_cents)
+  ) {
+    throw new Error(
+      `Amount mismatch.
+      Expected ${order.amount_cents},
+      got ${verifiedData.amount}`
+    );
+  }
+
+  if (
+    verifiedData.currency?.toUpperCase() !==
+    order.currency?.toUpperCase()
+  ) {
+    throw new Error(
+      `Currency mismatch.
+      Expected ${order.currency},
+      got ${verifiedData.currency}`
+    );
+  }
 
   const {
     rows: [buyer],
@@ -242,10 +307,26 @@ export const handlePaystackWebhook = async (
   const client = await pool.connect();
   let rawToken: string;
 
+  
   try {
     await client.query("BEGIN");
 
-    // Idempotency guard: only proceed if still pending
+    const {
+      rows: [lockedOrder],
+    } = await client.query(
+      `
+      SELECT id
+      FROM orders
+      WHERE id = $1
+      FOR UPDATE
+      `,
+      [order.id]
+    );
+
+    if (!lockedOrder) {
+      await client.query("ROLLBACK");
+      return;
+    }
     const { rowCount } = await client.query(
       `UPDATE orders SET status = 'paid', updated_at = NOW()
        WHERE id = $1 AND status = 'pending'`,
@@ -280,4 +361,22 @@ export const handlePaystackWebhook = async (
     await enqueueOrderDownload({ email: buyer.email, name: buyer.name, productTitle: product.title, token: rawToken! });
     await enqueueOrderSale({ creatorId: product.creator_id, productTitle: product.title, amountCents: order.amount_cents, buyerName: buyer.name });
   }
+};
+
+// payment.service.ts
+export const verifyTransaction = async (reference: string) => {
+  const data = await paystackRequest("GET", `/transaction/verify/${reference}`);
+  
+  const { rows: [joinOrder] } = await pool.query(
+    `SELECT orders.*, products.title as product_title 
+     FROM orders 
+     JOIN products ON orders.product_id = products.id
+     WHERE orders.paystack_ref = $1`,
+    [reference]
+  );
+
+  return {
+    data,        
+    order: joinOrder ?? null,
+  };
 };

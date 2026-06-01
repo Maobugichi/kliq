@@ -43,8 +43,8 @@ export const buyers = async (req: Request, res: Response) => {
 // GET /creator/buyers/export — returns CSV
 export const exportBuyers = async (req: Request, res: Response) => {
   try {
-    const creatorId = req.user!.id;
-    const buyerList = await getCreatorBuyers(creatorId);
+    const userId = req.user!.id;
+    const buyerList = await getCreatorBuyers(userId);
 
     const csvRows = [
       ["Name", "Email", "Total Purchases", "Total Spent (NGN)", "Last Purchase"],

@@ -40,8 +40,7 @@ export const signupService = async (data: SignupInput) => {
 
   const accessToken = generateAccessToken({
     id:user.id,
-    email:user.email,},
-    "1h"
+    email:user.email,}
 );
   const refreshToken = await generateRefreshToken(user.id);
 
@@ -154,14 +153,14 @@ export const refreshTokenService = async (data: { refreshToken: string }) => {
   if (!matchedToken) throw new Error("Invalid refresh token");
 
   const userResult = await pool.query(
-    "SELECT id, email, role FROM users WHERE id = $1",
+    "SELECT id, email, role, name FROM users WHERE id = $1",
     [matchedToken.user_id]
   );
 
   const user = userResult.rows[0];
   const newAccessToken = generateAccessToken(user);
 
-  return { accessToken: newAccessToken };
+  return { accessToken: newAccessToken ,  user: { id: user.id, email: user.email, role: user.role, name: user.name }};
 };
 
 export const logoutService = async (data: { refreshToken: string }) => {
