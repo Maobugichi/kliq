@@ -6,6 +6,7 @@ import {
   sendAffiliateInviteEmail,
   sendAffiliateConversionEmail,
   sendDownloadEmail,
+  sendNewSaleEmail,
   
 } from "./mailer.util.js";
 import { sendEmailVerification } from "../services/emailVerification.service.js";
@@ -41,7 +42,15 @@ export type EmailJobData =
         commissionCents: number; totalEarnedCents: number;
       }}
   | { name: "order.download";   payload: { email: string; name: string; productTitle: string; token: string } }
-  | { name: "order.sale";       payload: { creatorId: string; productTitle: string; amountCents: number; buyerName: string } }    
+  // Update the union type
+| { name: "order.sale"; payload: { 
+    creatorId: string;
+    creatorEmail: string;   // ← add
+    creatorName: string;    // ← add
+    productTitle: string; 
+    amountCents: number; 
+    buyerName: string 
+  }}
  
 
 export type EmailJobName = EmailJobData["name"];
@@ -83,6 +92,7 @@ export const enqueueAffiliateConversion = (payload: Extract<EmailJobData, { name
 export const enqueueOrderDownload = (payload: Extract<EmailJobData, { name: "order.download" }>["payload"]) =>
   enqueue({ name: "order.download", payload });
 
+// Update enqueueOrderSale (type is inferred automatically)
 export const enqueueOrderSale = (payload: Extract<EmailJobData, { name: "order.sale" }>["payload"]) =>
   enqueue({ name: "order.sale", payload });
 
@@ -134,13 +144,21 @@ export const startEmailWorker = (): Worker<EmailJobData> => {
           break;
 
         case "order.sale":
-          await notifyNewSale(
+          await Promise.all([notifyNewSale(
             payload.creatorId,
             payload.productTitle,
             payload.amountCents,
             payload.buyerName
-          );
-          break;
+          ),
+           sendNewSaleEmail(
+            payload.creatorEmail,
+            payload.creatorName,
+            payload.productTitle,
+            payload.amountCents,
+            payload.buyerName
+          )
+        ]);
+        break;
         
 
         default: {

@@ -32,9 +32,9 @@ export const notifyNewSale = async(
     amountCents:number,
     buyerName:string
 ):Promise<void> => {
-    const amountNGN = (amountCents / 100).toLocaleString('en-NGN',{
-        style:'currency',
-        currency:'NGN'
+    const amountNGN = (amountCents / 100).toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'NGN',
     });
 
     await createNotification(

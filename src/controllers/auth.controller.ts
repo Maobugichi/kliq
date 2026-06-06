@@ -15,16 +15,26 @@ type LoginBody = LoginInput;
 
 const ACCESS_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
+  secure: true,
+  sameSite: "none" as const,
   maxAge: 1000 * 60 * 15, 
+  domain: ".outray.app"
 };
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
-  maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
+  secure: true,
+  sameSite: "none" as const,
+  maxAge: 1000 * 60 * 60 * 24 * 30, 
+  domain: ".outray.app"
+};
+
+const COOKIE_CLEAR_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none" as const,
+  domain: ".outray.app",
+  // ❌ no maxAge here — that's the bug
 };
 
 export const signup = async (
@@ -146,8 +156,8 @@ export const logout = async (req: Request, res: Response) => {
 
     const result = await logoutService({ refreshToken: token });
 
-    res.clearCookie("accessToken", ACCESS_COOKIE_OPTIONS);
-    res.clearCookie("refreshToken", REFRESH_COOKIE_OPTIONS);
+    res.clearCookie("accessToken", COOKIE_CLEAR_OPTIONS);
+    res.clearCookie("refreshToken", COOKIE_CLEAR_OPTIONS);
 
     return res.status(200).json({
       success: true,

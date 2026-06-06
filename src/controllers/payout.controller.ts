@@ -1,17 +1,18 @@
 import type { Request, Response } from "express";
 import {
   requestPayout,
+  approvePayout,
   processPayout,
   getCreatorPayouts,
   getCreatorBalance,
   getAllPayouts,
   getBankList,
   resolveBankAccount,
+  getPayoutEvents,
 } from "../services/payout.service.js";
 
 // ─── Creator endpoints ────────────────────────────────────────────────────────
 
-// GET /payouts/banks — list Nigerian banks for the frontend dropdown
 export const listBanks = async (_req: Request, res: Response) => {
   try {
     const banks = await getBankList();
@@ -22,8 +23,6 @@ export const listBanks = async (_req: Request, res: Response) => {
   }
 };
 
-// GET /payouts/resolve?account_number=&bank_code=
-// Verify a bank account before submitting payout request
 export const resolveAccount = async (req: Request, res: Response) => {
   try {
     const { account_number, bank_code } = req.query as {
@@ -38,7 +37,6 @@ export const resolveAccount = async (req: Request, res: Response) => {
       });
     }
 
-
     const resolved = await resolveBankAccount(account_number, bank_code);
     return res.status(200).json({ success: true, data: resolved });
   } catch (err) {
@@ -49,11 +47,10 @@ export const resolveAccount = async (req: Request, res: Response) => {
   }
 };
 
-// GET /payouts/balance — creator's available balance
 export const getBalance = async (req: Request, res: Response) => {
   try {
-    const creatorId = req.user!.id;
-    const balance = await getCreatorBalance(creatorId);
+    const userId = req.user!.id;
+    const balance = await getCreatorBalance(userId);
     return res.status(200).json({ success: true, data: balance });
   } catch (err) {
     console.error("getBalance error:", err);
@@ -61,7 +58,6 @@ export const getBalance = async (req: Request, res: Response) => {
   }
 };
 
-// GET /payouts/me — creator's payout history
 export const myPayouts = async (req: Request, res: Response) => {
   try {
     const creatorId = req.user!.id;
@@ -73,10 +69,9 @@ export const myPayouts = async (req: Request, res: Response) => {
   }
 };
 
-// POST /payouts/request — creator requests a withdrawal
 export const requestPayoutController = async (req: Request, res: Response) => {
   try {
-    const creatorId = req.user!.id;
+    const userId = req.user!.id;
     const { bank_code, account_number } = req.body as {
       bank_code?: string;
       account_number?: string;
@@ -89,7 +84,11 @@ export const requestPayoutController = async (req: Request, res: Response) => {
       });
     }
 
-    const payout = await requestPayout({ creatorId, bankCode: bank_code, accountNumber: account_number });
+    const payout = await requestPayout({
+      userId,
+      bankCode: bank_code,
+      accountNumber: account_number,
+    });
 
     return res.status(201).json({
       success: true,
@@ -99,11 +98,17 @@ export const requestPayoutController = async (req: Request, res: Response) => {
   } catch (err) {
     if (err instanceof Error) {
       const clientErrors = [
+        "You already have a payout in progress",
         "Insufficient balance for payout",
-        "You already have a pending payout request",
+        "Creator profile not found",
       ];
-      if (clientErrors.includes(err.message))
+      // Minimum payout error message is dynamic so check with startsWith
+      if (
+        clientErrors.includes(err.message) ||
+        err.message.startsWith("Minimum payout is")
+      ) {
         return res.status(400).json({ success: false, message: err.message });
+      }
     }
     console.error("requestPayout error:", err);
     return res.status(500).json({ success: false, message: "Internal Server Error" });
@@ -112,7 +117,6 @@ export const requestPayoutController = async (req: Request, res: Response) => {
 
 // ─── Admin endpoints ──────────────────────────────────────────────────────────
 
-// GET /admin/payouts?status=pending
 export const listAllPayouts = async (req: Request, res: Response) => {
   try {
     const { status } = req.query;
@@ -124,16 +128,46 @@ export const listAllPayouts = async (req: Request, res: Response) => {
   }
 };
 
-// POST /admin/payouts/:payoutId/process — admin triggers the Paystack transfer
-export const processPayoutController = async (req: Request, res: Response) => {
+// POST /admin/payouts/:payoutId/approve
+export const approvePayoutController = async (req: Request, res: Response) => {
   try {
+    const adminId  = req.user!.id;
     const payoutId = req.params["payoutId"] as string;
 
     if (!payoutId) {
       return res.status(400).json({ success: false, message: "payoutId is required" });
     }
 
-    const payout = await processPayout(payoutId);
+    const payout = await approvePayout(payoutId, adminId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Payout approved",
+      data: payout,
+    });
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === "Unauthorized: admin access required")
+        return res.status(403).json({ success: false, message: err.message });
+      if (err.message === "Payout not found or not in pending status")
+        return res.status(400).json({ success: false, message: err.message });
+    }
+    console.error("approvePayout error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+// POST /admin/payouts/:payoutId/process
+export const processPayoutController = async (req: Request, res: Response) => {
+  try {
+    const adminId  = req.user!.id;
+    const payoutId = req.params["payoutId"] as string;
+
+    if (!payoutId) {
+      return res.status(400).json({ success: false, message: "payoutId is required" });
+    }
+
+    const payout = await processPayout(payoutId, adminId);
 
     return res.status(200).json({
       success: true,
@@ -143,13 +177,30 @@ export const processPayoutController = async (req: Request, res: Response) => {
   } catch (err) {
     if (err instanceof Error) {
       const clientErrors = [
-        "Payout not found or not in pending status",
+        "Payout not found or not in approved status",
         "Payout is missing bank details",
       ];
       if (clientErrors.includes(err.message))
         return res.status(400).json({ success: false, message: err.message });
     }
     console.error("processPayout error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+// GET /admin/payouts/:payoutId/events — audit trail for a specific payout
+export const listPayoutEvents = async (req: Request, res: Response) => {
+  try {
+    const payoutId = req.params["payoutId"] as string;
+
+    if (!payoutId) {
+      return res.status(400).json({ success: false, message: "payoutId is required" });
+    }
+
+    const events = await getPayoutEvents(payoutId);
+    return res.status(200).json({ success: true, data: events });
+  } catch (err) {
+    console.error("listPayoutEvents error:", err);
     return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };

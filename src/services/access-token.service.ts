@@ -212,7 +212,7 @@ export const redeemAccessToken = async (
       }),
     }));
 
-    console.log(downloads)
+  
 
     return { downloads };
   } catch (err) {

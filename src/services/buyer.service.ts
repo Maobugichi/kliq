@@ -2,6 +2,7 @@ import pool from "../config/db.js";
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { sendDownloadEmail } from "../utils/mailer.util.js";
+import { enqueueOrderDownload } from "../utils/emailqueue.js";
 
 
 export interface LibraryItem {
@@ -56,13 +57,13 @@ export const getBuyerLibrary = async (
 }
 
 export const resendDownloadEmail = async (
-    buyerId:string,
-    orderId:string
-):Promise<void> => {
-    const { rows:[order] } = await pool.query<{
-        id:string;
-        product_id:string;
-        status:string;
+    buyerId: string,
+    orderId: string
+): Promise<void> => {
+    const { rows: [order] } = await pool.query<{
+        id: string;
+        product_id: string;
+        status: string;
     }>(
         `SELECT id, product_id, status FROM orders
         WHERE id = $1 AND buyer_id = $2 AND status = 'paid'`,
@@ -72,12 +73,13 @@ export const resendDownloadEmail = async (
     if (!order) throw new Error('Order not found or not paid');
 
     const { rows: [token] } = await pool.query<{
-        id:string;
-        token_hash:string;
-        used_count:number;
-        max_downloads:number;
-        revoked:boolean;
-        expires_at:Date
+        id: string;
+        token_id: string;
+        token_hash: string;
+        used_count: number;
+        max_downloads: number;
+        revoked: boolean;
+        expires_at: Date;
     }>(
         `SELECT * FROM access_tokens WHERE order_id = $1`,
         [orderId]
@@ -86,30 +88,39 @@ export const resendDownloadEmail = async (
     if (!token) throw new Error('Access token not found for this order');
     if (token.revoked) throw new Error('Access has been revoked for this order');
 
-    const { rows:[buyer] } = await pool.query<{email:string; name:string}>(
-        `SELECT  email,name FROM users WHERE id = $1`,
+    const { rows: [buyer] } = await pool.query<{ email: string; name: string }>(
+        `SELECT email, name FROM users WHERE id = $1`,
         [buyerId]
     );
-    
+
     if (!buyer) throw new Error('Buyer not found');
 
-    const { rows: [product] } = await pool.query<{title:string}>(
+    const { rows: [product] } = await pool.query<{ title: string }>(
         'SELECT title FROM products WHERE id = $1',
         [order.product_id]
     );
 
     if (!product) throw new Error('Product not found');
 
-    const newRawToken = crypto.randomBytes(32).toString('hex');
-    const newHash = await bcrypt.hash(newRawToken,10);
+    const newSecret = crypto.randomBytes(32).toString('hex');
+    const newRawToken = `${token.token_id}~${newSecret}`;
+    const newHash = await bcrypt.hash(newSecret, 10);
 
     await pool.query(
-        `UPDATE access_tokens SET token_hash = $1 WHERE id =$2`,
+        `UPDATE access_tokens 
+         SET token_hash = $1,
+             expires_at = NOW() + INTERVAL '365 days'
+         WHERE id = $2`,
         [newHash, token.id]
     );
 
-    await sendDownloadEmail(buyer.email, buyer.name, product.title,newRawToken)
-}
+    await enqueueOrderDownload({
+    email: buyer.email,
+    name: buyer.name,
+    productTitle: product.title,
+    token: newRawToken,
+});
+};
 
 export const getBuyerProfile = async (
     buyerId: string
@@ -129,7 +140,7 @@ export const getBuyerProfile = async (
 
 export const updateBuyerProfile = async (
     buyerId: string,
-    fields: { name?: string; email?: string; password?: string }
+    fields: { name?: string; email?: string; }
 ): Promise<BuyerProfile> => {
  
     const setClauses: string[] = [];
@@ -167,17 +178,7 @@ export const updateBuyerProfile = async (
         setClauses.push(`email = $${paramIndex++}`);
         params.push(normalised);
     }
- 
-    if (fields.password !== undefined) {
-        if (fields.password.length < 8) {
-            throw new Error('Password must be at least 8 characters long.');
-        }
-       
-        const hashed = await bcrypt.hash(fields.password, 12);
-        setClauses.push(`password_hash = $${paramIndex++}`);
-        params.push(hashed);
-    }
- 
+
    
     setClauses.push(`updated_at = NOW()`);
  

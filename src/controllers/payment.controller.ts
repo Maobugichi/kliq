@@ -6,6 +6,7 @@ import {
   verifyTransaction,
 } from "../services/payment.service.js";
 import { resolveAffiliateCode } from "../services/affiliate.service.js";
+import { handlePayoutWebhook } from "../services/payout.service.js";
 
 export const initiate = async (req: Request, res: Response) => {
   try {
@@ -58,29 +59,44 @@ export const initiate = async (req: Request, res: Response) => {
 
 // POST /payments/webhook
 export const webhook = async (req: Request, res: Response) => {
+  const signature = req.headers["x-paystack-signature"] as string;
+
+  if (!signature) {
+    return res.status(400).json({ message: "Missing signature" });
+  }
+
+  const isValid = verifyWebhookSignature(req.body, signature);
+
+  if (!isValid) {
+    return res.status(401).json({ message: "Invalid signature" });
+  }
+
+  // Acknowledge immediately — Paystack retries if it doesn't receive a fast 200
+  res.status(200).json({ received: true });
+
   try {
-    const signature = req.headers["x-paystack-signature"] as string;
-
-    if (!signature) {
-      return res.status(400).json({ message: "Missing signature" });
-    }
-
-    const isValid = verifyWebhookSignature(req.body, signature);
-
-    if (!isValid) {
-      return res.status(401).json({ message: "Invalid signature" });
-    }
-
     const { event, data } = JSON.parse(req.body.toString());
 
-    await handlePaystackWebhook(event, data);
+    if (event === "charge.success") {
+      await handlePaystackWebhook(event, data);
+      return;
+    }
 
-    return res.status(200).json({ received: true });
+    if (
+      event === "transfer.success" ||
+      event === "transfer.failed"   ||
+      event === "transfer.reversed"
+    ) {
+      await handlePayoutWebhook(event, data);
+      return;
+    }
+
+    console.log(`[webhook] Unhandled event: ${event}`);
   } catch (err) {
-    console.error("webhook error:", err);
-    return res.status(200).json({ received: true });
+    // Response already sent — log only, never re-throw
+    console.error("[webhook] Processing error:", err);
   }
-};
+}
 
 // payment.controller.ts
 export const verify = async (req: Request, res: Response) => {

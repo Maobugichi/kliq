@@ -258,33 +258,21 @@ export const handlePaystackWebhook = async (
 
   const verifiedTx = await verifyTransaction(ref);
 
-  const { data:verifiedData } = verifiedTx
+  const { data: verifiedData } = verifiedTx;
 
   if (verifiedData.status !== "success") {
+    throw new Error(`Paystack verification failed for ${ref}`);
+  }
+
+  if (Number(verifiedData.amount) !== Number(order.amount_cents)) {
     throw new Error(
-      `Paystack verification failed for ${ref}`
+      `Amount mismatch. Expected ${order.amount_cents}, got ${verifiedData.amount}`
     );
   }
 
-  if (
-    Number(verifiedData.amount) !==
-    Number(order.amount_cents)
-  ) {
+  if (verifiedData.currency?.toUpperCase() !== order.currency?.toUpperCase()) {
     throw new Error(
-      `Amount mismatch.
-      Expected ${order.amount_cents},
-      got ${verifiedData.amount}`
-    );
-  }
-
-  if (
-    verifiedData.currency?.toUpperCase() !==
-    order.currency?.toUpperCase()
-  ) {
-    throw new Error(
-      `Currency mismatch.
-      Expected ${order.currency},
-      got ${verifiedData.currency}`
+      `Currency mismatch. Expected ${order.currency}, got ${verifiedData.currency}`
     );
   }
 
@@ -295,31 +283,34 @@ export const handlePaystackWebhook = async (
     [order.buyer_id]
   );
 
-  const {
-    rows: [product],
-  } = await pool.query<{ title: string; creator_id: string }>(
-    `SELECT title, creator_id FROM products WHERE id = $1`,
-    [order.product_id]
-  );
+ const { rows: [product] } = await pool.query<{ 
+  title: string; 
+  creator_id: string; 
+  creator_user_id: string;
+  creator_email: string;   // ← add
+  creator_name: string;    // ← add
+}>(
+  `SELECT p.title, p.creator_id, c.user_id AS creator_user_id,
+          u.email AS creator_email, u.name AS creator_name
+   FROM products p
+   JOIN creator_profiles c ON c.id = p.creator_id
+   JOIN users u ON u.id = c.user_id
+   WHERE p.id = $1`,
+  [order.product_id]
+);
 
-  if (!product) throw new Error('Product not found')
+  if (!product) throw new Error("Product not found");
 
   const client = await pool.connect();
   let rawToken: string;
 
-  
   try {
     await client.query("BEGIN");
 
     const {
       rows: [lockedOrder],
     } = await client.query(
-      `
-      SELECT id
-      FROM orders
-      WHERE id = $1
-      FOR UPDATE
-      `,
+      `SELECT id FROM orders WHERE id = $1 FOR UPDATE`,
       [order.id]
     );
 
@@ -327,6 +318,7 @@ export const handlePaystackWebhook = async (
       await client.query("ROLLBACK");
       return;
     }
+
     const { rowCount } = await client.query(
       `UPDATE orders SET status = 'paid', updated_at = NOW()
        WHERE id = $1 AND status = 'pending'`,
@@ -338,10 +330,10 @@ export const handlePaystackWebhook = async (
       return;
     }
 
-    rawToken = await generateAccessToken(order.buyer_id, order.product_id, order.id,client);
+    rawToken = await generateAccessToken(order.buyer_id, order.product_id, order.id, client);
 
     if (order.affiliate_code) {
-      await recordAffiliateConversion(order.affiliate_code, order.id, order.amount_cents,product.title);
+      await recordAffiliateConversion(order.affiliate_code, order.id, order.amount_cents, product.title);
     }
 
     if (order.coupon_id) {
@@ -356,17 +348,28 @@ export const handlePaystackWebhook = async (
     client.release();
   }
 
-  // Send notifications after commit
   if (buyer && product) {
-    await enqueueOrderDownload({ email: buyer.email, name: buyer.name, productTitle: product.title, token: rawToken! });
-    await enqueueOrderSale({ creatorId: product.creator_id, productTitle: product.title, amountCents: order.amount_cents, buyerName: buyer.name });
+   
+    await enqueueOrderDownload({
+      email: buyer.email,
+      name: buyer.name,
+      productTitle: product.title,
+      token: rawToken!,
+    });
+    await enqueueOrderSale({
+      creatorId: product.creator_user_id,
+      creatorEmail: product.creator_email,
+      creatorName: product.creator_name,
+      productTitle: product.title,
+      amountCents: order.amount_cents,
+      buyerName: buyer.name,
+    });
   }
 };
 
-// payment.service.ts
 export const verifyTransaction = async (reference: string) => {
-  const data = await paystackRequest("GET", `/transaction/verify/${reference}`);
-  
+  const paystackResponse = await paystackRequest("GET", `/transaction/verify/${reference}`);
+
   const { rows: [joinOrder] } = await pool.query(
     `SELECT orders.*, products.title as product_title 
      FROM orders 
@@ -376,7 +379,7 @@ export const verifyTransaction = async (reference: string) => {
   );
 
   return {
-    data,        
+    data: paystackResponse.data,  // ← unwrap .data here so callers get the tx object directly
     order: joinOrder ?? null,
   };
 };

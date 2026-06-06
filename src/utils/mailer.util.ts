@@ -321,3 +321,46 @@ export const sendAffiliateConversionEmail = async (
     html,
   });
 };
+
+export const sendNewSaleEmail = async (
+  to: string,
+  creatorName: string,
+  productTitle: string,
+  amountCents: number,
+  buyerName: string
+): Promise<void> => {
+  const amount = (amountCents / 100).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'NGN',
+  });
+
+  const dashboardUrl = `${process.env.FRONTEND_URL}/dashboard`;
+
+  const html = baseLayout(`
+    ${heading("🎉", "You just made a sale!", "CreatorLock")}
+
+    ${text(`Hey <b>${creatorName}</b>, <b>${buyerName}</b> just purchased <b>${productTitle}</b>.`)}
+
+    <div style="
+      margin:20px 0;
+      background:rgba(255,92,0,0.06);
+      border:1px solid rgba(255,92,0,0.15);
+      border-radius:12px;
+      padding:16px;
+      text-align:center;
+    ">
+      <p style="margin:0;color:#FF5C00;font-size:28px;font-weight:700;">${amount}</p>
+      <p style="margin:4px 0 0;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">Sale amount</p>
+    </div>
+
+    ${button("View Dashboard", dashboardUrl)}
+
+    ${text("Keep creating — your next sale is on the way.")}
+  `);
+
+  await sendEmail({
+    to,
+    subject: `New sale — ${buyerName} bought "${productTitle}"`,
+    html,
+  });
+};

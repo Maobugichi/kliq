@@ -77,14 +77,13 @@ export const getProfile = async (req: Request, res: Response) => {
 export const updateProfile = async (req: Request, res: Response) => {
     try {
         const buyerId = req.user!.id;
-        const { name, email, password } = req.body as {
+        const { name, email } = req.body as {
             name?: string;
             email?: string;
-            password?: string;
         };
  
         // Controller-level guard: reject empty payloads before hitting the service.
-        if (name === undefined && email === undefined && password === undefined) {
+        if (name === undefined && email === undefined) {
             return res.status(400).json({
                 success: false,
                 message: 'At least one field (name, email, password) must be provided.',
@@ -94,10 +93,10 @@ export const updateProfile = async (req: Request, res: Response) => {
         // exactOptionalPropertyTypes: passing `key: undefined` is not the same
         // as omitting the key. Build the fields object only with present values
         // so the service signature is satisfied correctly.
-        const fields: { name?: string; email?: string; password?: string } = {};
+        const fields: { name?: string; email?: string; } = {};
         if (name !== undefined) fields.name = name;
         if (email !== undefined) fields.email = email;
-        if (password !== undefined) fields.password = password;
+       
  
         const updated = await updateBuyerProfile(buyerId, fields);
  
@@ -108,13 +107,11 @@ export const updateProfile = async (req: Request, res: Response) => {
         });
     } catch (err) {
         if (err instanceof Error) {
-            // Validation and conflict errors thrown by the service layer are
-            // safe to surface directly to the client.
+            
             const clientErrors = [
                 'Name must be between 2 and 100 characters.',
                 'A valid email address is required.',
                 'This email address is already registered to another account.',
-                'Password must be at least 8 characters long.',
                 'Buyer not found',
                 'Profile update failed.',
             ];
