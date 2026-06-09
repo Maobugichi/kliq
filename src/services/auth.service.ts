@@ -173,7 +173,7 @@ export const logoutService = async (data: { refreshToken: string }) => {
   );
 
 
-  console.log("Active tokens in DB:", tokens.rowCount);
+  
 
   let matchedToken = null;
 
@@ -185,7 +185,6 @@ export const logoutService = async (data: { refreshToken: string }) => {
     }
   }
 
-  console.log("Matched token:", matchedToken?.id ?? "NONE");
 
   if (!matchedToken) throw new Error("Invalid or already revoked refresh token");
 
@@ -193,8 +192,6 @@ export const logoutService = async (data: { refreshToken: string }) => {
     `UPDATE refresh_tokens SET revoked = true, revoked_at = NOW() WHERE id = $1`,
     [matchedToken.id]
   );
-
-  console.log("Revoked token:", matchedToken.id);
 
   return { message: "Logout successful" };
 };

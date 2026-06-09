@@ -1,5 +1,10 @@
 import "dotenv/config";
-import express, { type Request, type Response, type NextFunction } from "express";
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+  type ErrorRequestHandler,
+} from "express";
 import cors from "cors";
 
 import authRouter from "./routes/auth.route.js";
@@ -18,6 +23,8 @@ import waitlistRouter from "./routes/waitlist.routes.js";
 import type multer from "multer";
 import { startEmailWorker } from "./utils/emailqueue.js";
 import cookieParser from "cookie-parser";
+import passport, { initPassport } from "./config/passport.config.js";
+import oauthRoutes from "./routes/oauth.routes.js";
 
 const app = express();
 
@@ -27,7 +34,6 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   "https://creatorlock.co",
   "https://www.creatorlock.co",
-  "https://sensitive-monarchy.outray.app"
 ].filter(Boolean) as string[];
 
 app.use(cors({
@@ -38,21 +44,25 @@ app.use(cors({
 }));
 
 app.use(cookieParser());
-
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
+initPassport(); 
+
+// ... rest of app
+app.use(passport.initialize());
 
 // ─── Request logger ───────────────────────────────────────────────────────────
 
-app.use((req: Request, _res: Response, next: NextFunction) => {
+app.use((req, _res: Response, next: NextFunction) => {
   console.log(`🔥 ${req.method} ${req.url}`);
   next();
 });
 
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
 app.use("/api", productRouter);
 app.use("/api", authRouter);
 app.use("/api", creatorRouter);
-
 app.use("/api", paymentRouter);
 app.use("/api", downloadRouter);
 app.use("/api", dashboardRouter);
@@ -63,22 +73,22 @@ app.use("/api", adminRouter);
 app.use("/api", buyerRouter);
 app.use("/api", couponRouter);
 app.use("/api", affiliateRouter);
+app.use("/api/oauth", oauthRoutes);
 
-
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok", time: new Date().toISOString() });
 });
 
+// ─── 404 ──────────────────────────────────────────────────────────────────────
 
-
-app.use((req: Request, res: Response) => {
+app.use((req, res) => {
   console.warn(`⚠️  404 — ${req.method} ${req.path}`);
   res.status(404).json({ success: false, message: `Route ${req.method} ${req.path} not found` });
 });
 
+// ─── Error handler ────────────────────────────────────────────────────────────
 
-app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  // Handle Multer errors cleanly
+const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   if (err.name === "MulterError") {
     const multerErr = err as multer.MulterError;
     const messages: Record<string, string> = {
@@ -86,27 +96,31 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
       LIMIT_FILE_COUNT: "Too many files",
       LIMIT_UNEXPECTED_FILE: "Unexpected file field",
     };
-    return res.status(400).json({
+    res.status(400).json({
       success: false,
       message: messages[multerErr.code] ?? multerErr.message,
     });
+    return;
   }
 
-  console.error(` [${req.method} ${req.path}]`, err.message);
+  console.error(`[${req.method} ${req.path}]`, err.message);
   console.error(err.stack);
   res.status(500).json({ success: false, message: err.message ?? "Internal Server Error" });
-});
+};
 
+app.use(errorHandler);
 
+// ─── Process guards ───────────────────────────────────────────────────────────
 
 process.on("uncaughtException", (err) => {
-  console.error(" Uncaught Exception:", err);
+  console.error("Uncaught Exception:", err);
 });
 
 process.on("unhandledRejection", (reason) => {
-  console.error(" Unhandled Rejection:", reason);
+  console.error("Unhandled Rejection:", reason);
 });
 
+// ─── Start ────────────────────────────────────────────────────────────────────
 
 startEmailWorker();
 
@@ -114,8 +128,6 @@ const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => {
   console.log(`kliq server running on port ${PORT}`);
 });
-
-
 
 server.on("error", (err: NodeJS.ErrnoException) => {
   if (err.code === "EADDRINUSE") {

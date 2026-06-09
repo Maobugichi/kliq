@@ -9,33 +9,12 @@ import {
   type SignupInput,
   completeOnboardingService,
 } from "../services/auth.service.js";
+import { ACCESS_COOKIE_OPTIONS, REFRESH_COOKIE_OPTIONS, COOKIE_CLEAR_OPTIONS } from "../utils/cookie.js";
 
 type SignupBody = SignupInput;
 type LoginBody = LoginInput;
 
-const ACCESS_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: "none" as const,
-  maxAge: 1000 * 60 * 15, 
-  domain: ".outray.app"
-};
 
-const REFRESH_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: "none" as const,
-  maxAge: 1000 * 60 * 60 * 24 * 30, 
-  domain: ".outray.app"
-};
-
-const COOKIE_CLEAR_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: "none" as const,
-  domain: ".outray.app",
-  // ❌ no maxAge here — that's the bug
-};
 
 export const signup = async (
   req: Request<{}, {}, SignupBody>,

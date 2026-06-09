@@ -8,7 +8,7 @@
     "outDir": "./dist",
     "module": "node16",
     "target": "es2020",
-    "types": ["node"],
+    //"types": ["node"],
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
