@@ -5,10 +5,12 @@ import {
   findCreatorBySlug,
   findCreatorByUserId,
   isSlugAvailable,
-  getBuyersForCreator
+  getBuyersForCreator,
+  sendEmailToBuyers
 } from "../services/creator.service.js";
 import { listProductsByCreator } from "../services/product.service.js";
-import type { UpdateCreatorProfileInput } from "../types.ts/creator.types.js";
+import type { UpdateCreatorProfileInput } from "../types/creator.types.js";
+import type { BuyerEmailTemplate } from "../types/email.types.js";
 
 
 
@@ -170,5 +172,84 @@ export const uploadCreatorImage = async (req: Request, res: Response) => {
   } catch (err) {
     console.error("uploadCreatorImage error:", err);
     return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+
+const VALID_TEMPLATES: BuyerEmailTemplate[] = [
+  "thank_you",
+  "reengagement",
+  "discount",
+  "new_product",
+  "custom",
+];
+
+export const sendBuyerEmail = async (req: Request, res: Response) => {
+  try {
+    const {
+      buyerIds,
+      template,
+      subject,
+      body,
+      couponCode,
+      productTitle,
+      productUrl,
+    } = req.body;
+
+    // ─── Validation ───────────────────────────────────────────────────────────
+
+    if (!Array.isArray(buyerIds) || buyerIds.length === 0) {
+      return res.status(400).json({ success: false, message: "buyerIds must be a non-empty array" });
+    }
+
+    if (buyerIds.length > 500) {
+      return res.status(400).json({ success: false, message: "Cannot send to more than 500 buyers at once" });
+    }
+
+    if (!template || !VALID_TEMPLATES.includes(template)) {
+      return res.status(400).json({
+        success: false,
+        message: `template must be one of: ${VALID_TEMPLATES.join(", ")}`,
+      });
+    }
+
+    if (!subject || typeof subject !== "string" || subject.trim().length === 0) {
+      return res.status(400).json({ success: false, message: "subject is required" });
+    }
+
+    if (subject.trim().length > 150) {
+      return res.status(400).json({ success: false, message: "subject must be 150 characters or fewer" });
+    }
+
+    if (!body || typeof body !== "string" || body.trim().length === 0) {
+      return res.status(400).json({ success: false, message: "body is required" });
+    }
+
+    if (body.trim().length > 5000) {
+      return res.status(400).json({ success: false, message: "body must be 5000 characters or fewer" });
+    }
+
+    // ─── Delegate to service ──────────────────────────────────────────────────
+
+    const result = await sendEmailToBuyers(req.user!.id, {
+      buyerIds,
+      template,
+      subject: subject.trim(),
+      body: body.trim(),
+      ...(couponCode   && { couponCode }),
+      ...(productTitle && { productTitle }),
+      ...(productUrl   && { productUrl }),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Email queued for ${result.queued} buyer${result.queued !== 1 ? "s" : ""}`,
+      queued: result.queued,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal Server Error";
+    console.error("[sendBuyerEmail] error:", err);
+    return res.status(500).json({ success: false, message });
   }
 };

@@ -1,8 +1,8 @@
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
 import { generateAccessToken, generateRefreshToken } from "../utils/token.util.js";
-import type { UserProp } from "../types.ts/global.types.js";
-import { CreatorStatus } from "../types.ts/creator.types.js";
+import type { UserProp } from "../types/global.types.js";
+import { CreatorStatus } from "../types/creator.types.js";
 import { enqueueEmailVerification } from "../utils/emailqueue.js";
 
 export type SignupInput = Pick<UserProp, "email"> & { password: string };

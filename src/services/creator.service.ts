@@ -1,5 +1,7 @@
 import pool from "../config/db.js";
-import { CreatorStatus, type BuyerRow, type CreatorProfile, type UpdateCreatorProfileInput } from "../types.ts/creator.types.js";
+import { enqueueBuyerBroadcast } from "../utils/emailqueue.js";
+import type { BuyerEmailTemplate } from "../types/email.types.js";
+import { CreatorStatus, type BuyerRow, type CreatorProfile, type UpdateCreatorProfileInput } from "../types/creator.types.js";
 
 export const findCreatorByUserId = async (
   userId: string
@@ -172,4 +174,78 @@ export const getBuyersForCreator = async (userId: string): Promise<BuyerRow[]> =
 
     
   return rows;
+};
+
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface SendBuyerEmailPayload {
+  buyerIds: string[];
+  template: BuyerEmailTemplate;
+  subject: string;
+  body: string;
+  couponCode?: string;
+  productTitle?: string;
+  productUrl?: string;
+}
+
+interface ResolvedBuyer {
+  id: string;
+  name: string;
+  email: string;
+}
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+
+export const sendEmailToBuyers = async (
+  creatorUserId: string,
+  payload: SendBuyerEmailPayload
+): Promise<{ queued: number }> => {
+  // 1. Resolve creator profile + name
+  const { rows: [creator] } = await pool.query<{ id: string; name: string }>(
+    `SELECT cp.id, u.name
+     FROM creator_profiles cp
+     JOIN users u ON u.id = cp.user_id
+     WHERE cp.user_id = $1`,
+    [creatorUserId]
+  );
+
+  if (!creator) throw new Error("Creator profile not found");
+
+  // 2. Resolve buyers — only allow buyers who actually purchased from this creator.
+  //    This prevents a creator from emailing arbitrary user IDs.
+  const { rows: buyers } = await pool.query<ResolvedBuyer>(
+    `SELECT DISTINCT u.id, u.name, u.email
+     FROM users u
+     JOIN orders o ON o.buyer_id = u.id
+     JOIN products p ON p.id = o.product_id
+     WHERE p.creator_id = $1
+       AND o.status = 'paid'
+       AND u.id = ANY($2::uuid[])`,
+    [creator.id, payload.buyerIds]
+  );
+
+  if (buyers.length === 0) {
+    throw new Error("No valid buyers found for the provided IDs");
+  }
+
+  // 3. Enqueue one job per buyer so failures are isolated —
+  //    one bad email address won't block the rest of the batch.
+  await Promise.all(
+    buyers.map((buyer) =>
+      enqueueBuyerBroadcast({
+        to: buyer.email,
+        buyerName: buyer.name,
+        creatorName: creator.name,
+        template: payload.template,
+        subject: payload.subject,
+        body: payload.body,
+        ...(payload.couponCode   && { couponCode:   payload.couponCode }),
+        ...(payload.productTitle && { productTitle: payload.productTitle }),
+        ...(payload.productUrl   && { productUrl:   payload.productUrl }),
+      })
+    )
+  );
+
+  return { queued: buyers.length };
 };

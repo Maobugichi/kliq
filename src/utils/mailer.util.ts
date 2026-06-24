@@ -1,11 +1,10 @@
 import { Resend } from "resend";
+import type { BuyerEmailTemplate } from "../types/email.types.js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.EMAIL_FROM ?? "onboarding@resend.dev";
 
-/* ─────────────────────────────────────────────
-   BASE EMAIL SENDER
-──────────────────────────────────────────── */
+
 const sendEmail = async ({
   to,
   subject,
@@ -18,9 +17,7 @@ const sendEmail = async ({
   await resend.emails.send({ from: FROM, to, subject, html });
 };
 
-/* ─────────────────────────────────────────────
-   BRAND SYSTEM (CreatorLock Email UI Kit)
-──────────────────────────────────────────── */
+
 
 const baseLayout = (content: string) => `
   <div style="
@@ -116,11 +113,8 @@ const codeBox = (value: string) => `
   </code>
 `;
 
-/* ─────────────────────────────────────────────
-   EMAIL TEMPLATES
-──────────────────────────────────────────── */
 
-/* 🔐 VERIFY EMAIL */
+
 export const sendVerificationEmail = async (
   to: string,
   token: string
@@ -144,7 +138,7 @@ export const sendVerificationEmail = async (
   });
 };
 
-/* 🔑 PASSWORD RESET */
+
 export const sendPasswordResetEmail = async (
   to: string,
   token: string
@@ -168,7 +162,7 @@ export const sendPasswordResetEmail = async (
   });
 };
 
-/* 📦 DOWNLOAD EMAIL */
+
 export const sendDownloadEmail = async (
   to: string,
   name: string,
@@ -196,7 +190,7 @@ export const sendDownloadEmail = async (
   });
 };
 
-/* 🔐 WAITLIST EMAIL */
+
 export const sendWaitlistConfirmationEmail = async (
   to: string
 ): Promise<void> => {
@@ -363,4 +357,250 @@ export const sendNewSaleEmail = async (
     subject: `New sale — ${buyerName} bought "${productTitle}"`,
     html,
   });
+};
+
+
+
+const mergeTags = (str: string, firstName: string): string =>
+  str.replace(/\{name\}/gi, firstName);
+
+const bodyToHtml = (raw: string, firstName: string): string =>
+  mergeTags(raw, firstName)
+    .split("\n")
+    .map(
+      (line) =>
+        `<p style="color:#cfcfcf;line-height:1.7;margin:0 0 10px;font-size:14px;">${
+          line.trim() || "&nbsp;"
+        }</p>`
+    )
+    .join("");
+
+
+const unsubscribeFooter = `
+  <div style="
+    margin-top:24px;
+    padding:12px 14px;
+    border-radius:10px;
+    background:rgba(255,255,255,0.02);
+    border:1px solid rgba(255,255,255,0.05);
+    font-size:11px;
+    color:#444;
+    line-height:1.6;
+    text-align:center;
+  ">
+    You're receiving this because you purchased from this creator on
+    <span style="color:#FF5C00;">CreatorLock</span>.
+    To stop receiving messages, reply with "unsubscribe".
+  </div>
+`;
+
+// ─── Template: Thank You ──────────────────────────────────────────────────────
+
+const renderThankYou = (
+  firstName: string,
+  creatorName: string,
+  body: string
+): string =>
+  baseLayout(`
+    ${heading("🎉", "Thank you so much!", `A message from ${creatorName}`)}
+
+    ${bodyToHtml(body, firstName)}
+
+    <div style="
+      margin:20px 0;
+      padding:14px;
+      border-radius:12px;
+      background:rgba(255,92,0,0.06);
+      border:1px solid rgba(255,92,0,0.15);
+      font-size:13px;
+      color:#ffb38a;
+      text-align:center;
+      line-height:1.6;
+    ">
+      💛 Your support means everything. Thank you for being a customer.
+    </div>
+
+    ${unsubscribeFooter}
+  `);
+
+// ─── Template: Re-engagement ──────────────────────────────────────────────────
+
+const renderReengagement = (
+  firstName: string,
+  creatorName: string,
+  body: string
+): string =>
+  baseLayout(`
+    ${heading("💌", `Hey ${firstName}, we miss you!`, `From ${creatorName}`)}
+
+    ${bodyToHtml(body, firstName)}
+
+    <div style="
+      margin:20px 0;
+      padding:14px;
+      border-radius:12px;
+      background:rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.07);
+      font-size:13px;
+      color:#888;
+      text-align:center;
+      line-height:1.6;
+    ">
+      It's been a while — come see what's new 👀
+    </div>
+
+    ${unsubscribeFooter}
+  `);
+
+// ─── Template: Discount ───────────────────────────────────────────────────────
+
+const renderDiscount = (
+  firstName: string,
+  creatorName: string,
+  body: string,
+  couponCode?: string
+): string =>
+  baseLayout(`
+    ${heading("🏷️", "A special offer, just for you", `From ${creatorName}`)}
+
+    ${bodyToHtml(body, firstName)}
+
+    ${
+      couponCode
+        ? `<div style="margin:20px 0;">
+            <p style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;text-align:center;">
+              Your discount code
+            </p>
+            <div style="
+              background:rgba(255,92,0,0.08);
+              border:1px dashed rgba(255,92,0,0.4);
+              border-radius:12px;
+              padding:16px;
+              text-align:center;
+            ">
+              <span style="
+                font-family:monospace;
+                font-size:22px;
+                font-weight:700;
+                color:#FF5C00;
+                letter-spacing:0.15em;
+              ">${couponCode}</span>
+            </div>
+          </div>`
+        : ""
+    }
+
+    ${unsubscribeFooter}
+  `);
+
+// ─── Template: New Product ────────────────────────────────────────────────────
+
+const renderNewProduct = (
+  firstName: string,
+  creatorName: string,
+  body: string,
+  productTitle?: string,
+  productUrl?: string
+): string =>
+  baseLayout(`
+    ${heading("🚀", "Something new just dropped", `From ${creatorName}`)}
+
+    ${bodyToHtml(body, firstName)}
+
+    ${
+      productTitle
+        ? `<div style="
+            margin:20px 0;
+            background:rgba(255,92,0,0.06);
+            border:1px solid rgba(255,92,0,0.2);
+            border-radius:12px;
+            padding:16px;
+            text-align:center;
+          ">
+            <p style="margin:0 0 4px;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">New release</p>
+            <p style="margin:0;color:#fff;font-size:16px;font-weight:700;">${productTitle}</p>
+          </div>
+          ${productUrl ? button("Check it out →", productUrl) : ""}`
+        : ""
+    }
+
+    ${unsubscribeFooter}
+  `);
+
+// ─── Template: Custom (no structural chrome, just the creator's message) ─────
+
+const renderCustom = (
+  firstName: string,
+  creatorName: string,
+  subject: string,
+  body: string
+): string =>
+  baseLayout(`
+    ${heading("✉️", subject, `A message from ${creatorName}`)}
+
+    ${bodyToHtml(body, firstName)}
+
+    ${unsubscribeFooter}
+  `);
+
+// ─── Main dispatcher ──────────────────────────────────────────────────────────
+
+export const sendBuyerBroadcastEmail = async (payload: {
+  to: string;
+  buyerName: string;
+  creatorName: string;
+  template: BuyerEmailTemplate;
+  subject: string;
+  body: string;
+  couponCode?: string;
+  productTitle?: string;
+  productUrl?: string;
+}): Promise<void> => {
+  const buyerName = payload.buyerName;
+  let html: string;
+
+  switch (payload.template) {
+    case "thank_you":
+      html = renderThankYou(buyerName, payload.creatorName, payload.body);
+      break;
+
+    case "reengagement":
+      html = renderReengagement(buyerName, payload.creatorName, payload.body);
+      break;
+
+    case "discount":
+      html = renderDiscount(
+        buyerName,
+        payload.creatorName,
+        payload.body,
+        payload.couponCode
+      );
+      break;
+
+    case "new_product":
+      html = renderNewProduct(
+        buyerName,
+        payload.creatorName,
+        payload.body,
+        payload.productTitle,
+        payload.productUrl
+      );
+      break;
+
+    case "custom":
+      html = renderCustom(
+        buyerName,
+        payload.creatorName,
+        payload.subject,
+        payload.body
+      );
+      break;
+
+    default: {
+      const _exhaustive: never = payload.template;
+      throw new Error(`Unknown buyer email template: ${_exhaustive}`);
+    }
+  }
+
+  await sendEmail({ to: payload.to, subject: payload.subject, html });
 };

@@ -48,18 +48,15 @@ app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 initPassport(); 
 
-// ... rest of app
 app.use(passport.initialize());
 
-// ─── Request logger ───────────────────────────────────────────────────────────
-
 app.use((req, _res: Response, next: NextFunction) => {
-  console.log(`🔥 ${req.method} ${req.url}`);
+  console.log(` ${req.method} ${req.url}`);
   next();
 });
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
 
+app.use("/api/oauth", oauthRoutes);
 app.use("/api", productRouter);
 app.use("/api", authRouter);
 app.use("/api", creatorRouter);
@@ -73,7 +70,7 @@ app.use("/api", adminRouter);
 app.use("/api", buyerRouter);
 app.use("/api", couponRouter);
 app.use("/api", affiliateRouter);
-app.use("/api/oauth", oauthRoutes);
+
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok", time: new Date().toISOString() });

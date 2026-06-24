@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
-import type { AccessTokenPayload } from "../types.ts/token.types.js";
+import type { AccessTokenPayload } from "../types/token.types.js";
 import type { SignOptions } from "jsonwebtoken";
 
 export const generateAccessToken = (payload: {

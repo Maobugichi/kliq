@@ -7,7 +7,7 @@ import {
   sendAffiliateConversionEmail,
   sendDownloadEmail,
   sendNewSaleEmail,
-  
+  sendBuyerBroadcastEmail,
 } from "./mailer.util.js";
 import { sendEmailVerification } from "../services/emailVerification.service.js";
 import { notifyNewSale } from "../services/notification.service.js";
@@ -27,31 +27,43 @@ export const connection = new Redis({
   retryStrategy: (times: number) => Math.min(times * 200, 5_000),
 });
 
+// ─── Template variants ───────────────────────────────────────────────────────
 
+import type { BuyerEmailTemplate } from "../types/email.types.js";
+export type { BuyerEmailTemplate }; // re-export so existing callers still work
 
 export type EmailJobData =
-  | { name: "waitlist.confirmation";       payload: { email: string } }
-  | { name: "email.verification";          payload: { id: string; email: string } }
-  | { name: "password.reset";              payload: { email: string; token: string } }
-  | { name: "affiliate.invited";           payload: {
+  | { name: "waitlist.confirmation";  payload: { email: string } }
+  | { name: "email.verification";     payload: { id: string; email: string } }
+  | { name: "password.reset";         payload: { email: string; token: string } }
+  | { name: "affiliate.invited";      payload: {
         to: string; affiliateName: string; creatorName: string;
         storeUrl: string; commissionPercent: number; affiliateCode: string;
       }}
-  | { name: "affiliate.conversion";        payload: {
+  | { name: "affiliate.conversion";   payload: {
         to: string; affiliateName: string; productTitle: string;
         commissionCents: number; totalEarnedCents: number;
       }}
-  | { name: "order.download";   payload: { email: string; name: string; productTitle: string; token: string } }
-  // Update the union type
-| { name: "order.sale"; payload: { 
-    creatorId: string;
-    creatorEmail: string;   // ← add
-    creatorName: string;    // ← add
-    productTitle: string; 
-    amountCents: number; 
-    buyerName: string 
-  }}
- 
+  | { name: "order.download";         payload: { email: string; name: string; productTitle: string; token: string } }
+  | { name: "order.sale";             payload: {
+        creatorId: string;
+        creatorEmail: string;
+        creatorName: string;
+        productTitle: string;
+        amountCents: number;
+        buyerName: string;
+      }}
+  | { name: "buyer.broadcast";        payload: {
+        to: string;
+        buyerName: string;
+        creatorName: string;
+        template: BuyerEmailTemplate; // which template to render
+        subject: string;              // creator-authored or pre-filled default
+        body: string;                 // editable copy for all templates
+        couponCode?: string;          // only used by "discount" template
+        productTitle?: string;        // only used by "new_product" template
+        productUrl?: string;          // only used by "new_product" template
+      }};
 
 export type EmailJobName = EmailJobData["name"];
 
@@ -68,7 +80,6 @@ export const emailQueue = new Queue<EmailJobData>("emails", {
 });
 
 // ─── Enqueue helpers ──────────────────────────────────────────────────────────
-// One typed helper per job — callers never touch the queue directly
 
 export const enqueue = async (job: EmailJobData): Promise<void> => {
   await emailQueue.add(job.name, job);
@@ -92,9 +103,14 @@ export const enqueueAffiliateConversion = (payload: Extract<EmailJobData, { name
 export const enqueueOrderDownload = (payload: Extract<EmailJobData, { name: "order.download" }>["payload"]) =>
   enqueue({ name: "order.download", payload });
 
-// Update enqueueOrderSale (type is inferred automatically)
 export const enqueueOrderSale = (payload: Extract<EmailJobData, { name: "order.sale" }>["payload"]) =>
   enqueue({ name: "order.sale", payload });
+
+export const enqueueBuyerBroadcast = (
+  payload: Extract<EmailJobData, { name: "buyer.broadcast" }>["payload"]
+) => enqueue({ name: "buyer.broadcast", payload });
+
+// ─── Worker ───────────────────────────────────────────────────────────────────
 
 export const startEmailWorker = (): Worker<EmailJobData> => {
   const worker = new Worker<EmailJobData>(
@@ -114,6 +130,7 @@ export const startEmailWorker = (): Worker<EmailJobData> => {
         case "password.reset":
           await sendPasswordResetEmail(payload.email, payload.token);
           break;
+
         case "affiliate.invited":
           await sendAffiliateInviteEmail(
             payload.to,
@@ -124,6 +141,7 @@ export const startEmailWorker = (): Worker<EmailJobData> => {
             payload.affiliateCode
           );
           break;
+
         case "affiliate.conversion":
           await sendAffiliateConversionEmail(
             payload.to,
@@ -144,25 +162,28 @@ export const startEmailWorker = (): Worker<EmailJobData> => {
           break;
 
         case "order.sale":
-          await Promise.all([notifyNewSale(
-            payload.creatorId,
-            payload.productTitle,
-            payload.amountCents,
-            payload.buyerName
-          ),
-           sendNewSaleEmail(
-            payload.creatorEmail,
-            payload.creatorName,
-            payload.productTitle,
-            payload.amountCents,
-            payload.buyerName
-          )
-        ]);
-        break;
-        
+          await Promise.all([
+            notifyNewSale(
+              payload.creatorId,
+              payload.productTitle,
+              payload.amountCents,
+              payload.buyerName
+            ),
+            sendNewSaleEmail(
+              payload.creatorEmail,
+              payload.creatorName,
+              payload.productTitle,
+              payload.amountCents,
+              payload.buyerName
+            ),
+          ]);
+          break;
+
+        case "buyer.broadcast":
+          await sendBuyerBroadcastEmail(payload);
+          break;
 
         default: {
-          // Exhaustiveness check — TS will error if a case is missing
           const _exhaustive: never = name;
           throw new Error(`Unknown email job: ${_exhaustive}`);
         }

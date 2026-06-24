@@ -1,5 +1,5 @@
 import pool from "../config/db.js";
-import { CreatorStatus, type CreatorProfile } from "../types.ts/creator.types.js";
+import { CreatorStatus, type CreatorProfile } from "../types/creator.types.js";
 import {
   updateCreatorStatus,
   findCreatorByUserId,

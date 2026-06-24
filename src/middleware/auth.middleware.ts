@@ -5,16 +5,18 @@ export const authenticateToken = (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+):void => {
   // Read from cookie first, fall back to Authorization header
   const token =
     req.cookies?.accessToken ?? req.headers.authorization?.split(" ")[1];
 
   if (!token) {
-    return res.status(401).json({
+     res.status(401).json({
       success: false,
       message: "Access token required",
     });
+
+    return;
   }
 
   try {
@@ -26,10 +28,11 @@ export const authenticateToken = (
     };
     next();
   } catch {
-    return res.status(401).json({
+     res.status(401).json({
       success: false,
       message: "Invalid or expired access token",
     });
+    return;
   }
 };
 
@@ -56,19 +59,22 @@ export const authenticateOptional = (
 };
 
 export const authorizeRole = (...roles: string[]) => {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return (req: Request, res: Response, next: NextFunction):void => {
     if (!req.user) {
-      return res.status(401).json({
+       res.status(401).json({
         success: false,
         message: "Authentication required",
       });
+
+      return;
     }
 
     if (!req.user.role || !roles.includes(req.user.role)) {
-      return res.status(403).json({
+       res.status(403).json({
         success: false,
         message: "You do not have permission to perform this action",
       });
+      return;
     }
 
     next();

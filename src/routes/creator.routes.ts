@@ -6,12 +6,16 @@ import {
   getMyProfile,
   checkSlug,
   uploadCreatorImage,
-  getBuyers
+  getBuyers,
+  sendBuyerEmail
 } from "../controllers/creator.controller.js";
 import type { RequestHandler } from "express";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 import { requireActiveCreator } from "../middleware/creator.middleware.js";
 import { uploadThumbnail } from "../middleware/upload.middleware.js";
+
+
+
 
 const router = Router();
 
@@ -26,6 +30,18 @@ router.post("/creator/apply", authenticateToken, applyAsCreator);
 router.patch("/creator/me", authenticateToken, requireActiveCreator, updateMyProfile);
 // creator.routes.ts
 router.get('/creator/buyers', authenticateToken,requireActiveCreator, getBuyers);
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD TO: your existing creator router file (wherever the buyers routes live)
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+
+router.post(
+  "/creator/buyers/email",
+  authenticateToken,
+  requireActiveCreator,
+  sendBuyerEmail
+);
 router.post("/creator/upload-image", authenticateToken, requireActiveCreator, thumbnailParser, thumbnailUploader, uploadCreatorImage);
 
 export default router;
