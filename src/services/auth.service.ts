@@ -4,6 +4,7 @@ import { generateAccessToken, generateRefreshToken } from "../utils/token.util.j
 import type { UserProp } from "../types/global.types.js";
 import { CreatorStatus } from "../types/creator.types.js";
 import { enqueueEmailVerification } from "../utils/emailqueue.js";
+import jwt from "jsonwebtoken"
 
 export type SignupInput = Pick<UserProp, "email"> & { password: string };
 export type LoginInput = Pick<UserProp, "email"> & { password: string };
@@ -18,34 +19,53 @@ export type OnboardingInput = {
 export const signupService = async (data: SignupInput) => {
   const { email, password } = data;
 
-  const existing = await pool.query(
-    "SELECT id FROM users WHERE email = $1", [email]
-  );
-
-  if (existing.rowCount && existing.rowCount > 0) {
-    throw new Error("An account with this email already exists");
+ 
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Invalid email address");
+  }
+  if (!password || password.length < 8) {
+    throw new Error("Password must be at least 8 characters");
+  }
+  if (password.length > 72) {
+    throw new Error("Password must be under 72 characters");
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const { rows: [user] } = await pool.query(
-    `INSERT INTO users (email, password_hash, email_verified, role)
-     VALUES ($1, $2, false, null)
-     RETURNING id, email`,
-    [email, passwordHash]
-  );
+  let user: { id: string; email: string } | undefined;
 
-  
+  try {
+    const { rows: [inserted] } = await pool.query<{ id: string; email: string }>(
+      `INSERT INTO users (email, password_hash, email_verified, role)
+       VALUES ($1, $2, false, null)
+       RETURNING id, email`,
+      [email, passwordHash]
+    );
+    user = inserted;
+  } catch (err: any) {
+    if (err.code === '23505') {
+      throw new Error("An account with this email already exists");
+    }
+    throw err;
+  }
+
+  if (!user) throw new Error("Failed to create account");
+
   await enqueueEmailVerification(user.id, user.email);
 
   const accessToken = generateAccessToken({
-    id:user.id,
-    email:user.email,}
-);
+    id: user.id,
+    email: user.email,
+    email_verified: false,  // ← add this
+  });
   const refreshToken = await generateRefreshToken(user.id);
 
-  
-  return { message: "Verification email sent" , user: { id: user.id, email: user.email, }, accessToken, refreshToken };
+  return {
+    message: "Verification email sent",
+    user: { id: user.id, email: user.email },
+    accessToken,
+    refreshToken,
+  };
 };
 
 export const completeOnboardingService = async (
@@ -61,26 +81,28 @@ export const completeOnboardingService = async (
     const { rows: [user] } = await client.query(
       `UPDATE users SET role = $1, name = $2, is_onboarded = true
        WHERE id = $3
-       RETURNING id, email, role, name`,
+       RETURNING id, email, role, name, email_verified`,
       [role, name, userId]
     );
 
     if (role === "creator") {
-    
-      const { rows: [conflict] } = await client.query(
-        "SELECT id FROM creator_profiles WHERE store_slug = $1 AND user_id != $2",
-        [storeSlug, userId]
-      );
-
-      if (conflict) throw new Error("Slug already taken");
-
-      await client.query(
-        `INSERT INTO creator_profiles (user_id, display_name, store_slug, status)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (user_id) DO UPDATE
-         SET display_name = $2, store_slug = $3`,
-        [userId, name, storeSlug, CreatorStatus.ACTIVE]
-      );
+      if (!storeSlug?.trim()) {
+        throw new Error("Store slug is required for creators");
+      }
+      try {
+          await client.query(
+              `INSERT INTO creator_profiles (user_id, display_name, store_slug, status)
+              VALUES ($1, $2, $3, $4)
+              ON CONFLICT (user_id) DO UPDATE
+              SET display_name = $2, store_slug = $3`,
+              [userId, name, storeSlug, CreatorStatus.ACTIVE]
+          );
+      } catch (err: any) {
+          if (err.code === '23505' && err.constraint === 'creator_profiles_store_slug_key') {
+              throw new Error("Slug already taken");
+          }
+          throw err;
+      }
     }
 
     await client.query("COMMIT");
@@ -88,9 +110,12 @@ export const completeOnboardingService = async (
     const accessToken = generateAccessToken({
       id:user.id,
       email:user.email,
-      role:user.role
+      role:user.role,
+      email_verified: user.email_verified
     });
-    //const refreshToken = await generateRefreshToken(user.id);
+
+
+
     return { user: { id: user.id, email: user.email, role: user.role, name: user.name }, accessToken };
   } catch (err) {
     await client.query("ROLLBACK");
@@ -103,8 +128,12 @@ export const completeOnboardingService = async (
 export const loginService = async (data: LoginInput) => {
   const { email, password } = data;
 
+  if (!email || !password) {
+    throw new Error("Email and password are required");
+  }
+
   const result = await pool.query(
-    "SELECT * FROM users WHERE email = $1",
+    "SELECT id, email, role, name, password_hash, email_verified FROM users WHERE email = $1",
     [email]
   );
 
@@ -117,15 +146,21 @@ export const loginService = async (data: LoginInput) => {
 
   if (!isValid) throw new Error("Invalid credentials");
 
+  if (!user.email_verified) {
+    throw new Error("Please verify your email before continuing");
+  }
+
   const accessToken = generateAccessToken({
     id:user.id,
     email:user.email,
-    role:user.role
+    role:user.role,
+    email_verified: user.email_verified, 
   });
   const refreshToken = await generateRefreshToken(user.id);
-
+  
+  const { password_hash, ...safeUser } = user;
   return {
-    user: { id: user.id, email: user.email, role: user.role, name: user.name },
+    user: safeUser,
     accessToken,
     refreshToken,
   };
@@ -136,29 +171,53 @@ export const refreshTokenService = async (data: { refreshToken: string }) => {
 
   if (!refreshToken) throw new Error("Refresh token required");
 
-  const tokens = await pool.query(
-    `SELECT * FROM refresh_tokens WHERE revoked = false AND expires_at > NOW()`
-  );
-
-  let matchedToken = null;
-
-  for (const row of tokens.rows) {
-    const isMatch = await bcrypt.compare(refreshToken, row.token_hash);
-    if (isMatch) {
-      matchedToken = row;
-      break;
-    }
+  let payload: { userId: string; tokenId: string };
+  try {
+    payload = jwt.verify(
+      refreshToken,
+      process.env.JWT_REFRESH_SECRET as string
+    ) as { userId: string; tokenId: string };
+  } catch {
+    throw new Error("Invalid refresh token");
   }
-
-  if (!matchedToken) throw new Error("Invalid refresh token");
-
-  const userResult = await pool.query(
-    "SELECT id, email, role, name FROM users WHERE id = $1",
-    [matchedToken.user_id]
+  
+  const { rows: [tokenRow] } = await pool.query<{
+    id: string;
+    token_hash: string;
+    user_id: string;
+  }>(
+    `SELECT id, token_hash, user_id
+     FROM refresh_tokens
+     WHERE id = $1
+       AND revoked = false
+       AND expires_at > NOW()`,
+    [payload.tokenId]
   );
 
-  const user = userResult.rows[0];
-  const newAccessToken = generateAccessToken(user);
+  if (!tokenRow) throw new Error("Invalid refresh token");
+
+  const isMatch = await bcrypt.compare(refreshToken, tokenRow.token_hash);
+  if (!isMatch) throw new Error("Invalid refresh token");
+
+  const { rows: [user] } = await pool.query<{
+    id: string;
+    email: string;
+    role: string;
+    name: string;
+    email_verified:boolean
+  }>(
+    `SELECT id, email, role, name, email_verified FROM users WHERE id = $1`,
+    [tokenRow.user_id]
+  );
+
+  if (!user) throw new Error("User not found");
+
+  const newAccessToken = generateAccessToken({
+    id: user.id,
+    email: user.email,
+    role: user.role as "creator" | "buyer" | "admin",
+    email_verified: user.email_verified
+  });
 
   return { accessToken: newAccessToken ,  user: { id: user.id, email: user.email, role: user.role, name: user.name }};
 };
@@ -168,29 +227,36 @@ export const logoutService = async (data: { refreshToken: string }) => {
 
   if (!refreshToken) throw new Error("Refresh token required");
 
-  const tokens = await pool.query(
-    `SELECT * FROM refresh_tokens WHERE revoked = false AND expires_at > NOW()`
-  );
-
-
-  
-
-  let matchedToken = null;
-
-  for (const row of tokens.rows) {
-    const isMatch = await bcrypt.compare(refreshToken, row.token_hash);
-    if (isMatch) {
-      matchedToken = row;
-      break;
-    }
+  let payload: { userId: string; tokenId: string };
+  try {
+    payload = jwt.verify(
+      refreshToken,
+      process.env.JWT_REFRESH_SECRET as string
+    ) as { userId: string; tokenId: string };
+  } catch {
+    throw new Error("Invalid refresh token");
   }
 
+const { rows: [tokenRow] } = await pool.query<{
+    id: string;
+    token_hash: string;
+  }>(
+    `SELECT id, token_hash
+     FROM refresh_tokens
+     WHERE id = $1
+       AND revoked = false
+       AND expires_at > NOW()`,
+    [payload.tokenId]
+  );
 
-  if (!matchedToken) throw new Error("Invalid or already revoked refresh token");
+  if (!tokenRow) throw new Error("Invalid or already revoked refresh token");
 
+  const isMatch = await bcrypt.compare(refreshToken, tokenRow.token_hash);
+  if (!isMatch) throw new Error("Invalid or already revoked refresh token");
+  
   await pool.query(
     `UPDATE refresh_tokens SET revoked = true, revoked_at = NOW() WHERE id = $1`,
-    [matchedToken.id]
+    [tokenRow.id]
   );
 
   return { message: "Logout successful" };

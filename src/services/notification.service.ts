@@ -11,6 +11,8 @@ export interface Notification {
     created_at:Date;
 } 
 
+import { getIO } from "../socket.js";
+
 export const createNotification = async(
     userId:string,
     type:string,
@@ -18,11 +20,18 @@ export const createNotification = async(
     message:string,
     metadata?:Record<string,unknown>
 ):Promise<void> => {
-    await pool.query(
-        `INSERT INTO notifications(user_id, type, title,message, metadata)
-        VALUES($1, $2, $3, $4,$5)`,
+    const { rows: [notification] } = await pool.query(
+        `INSERT INTO notifications(user_id, type, title, message, metadata)
+        VALUES($1, $2, $3, $4, $5)
+        RETURNING *`,
         [userId, type, title, message, metadata]
     );
+
+    try {
+      getIO().to(`user:${userId}`).emit("notification:new", notification);
+    } catch {
+      
+    }
 };
 
 
@@ -75,8 +84,7 @@ export const markAsRead = async (
   }
 };
  
-// ─── Mark all as read ─────────────────────────────────────────────────────────
- 
+
 export const markAllAsRead = async (userId: string): Promise<void> => {
   await pool.query(
     `UPDATE notifications SET read = true
@@ -93,4 +101,61 @@ export const getUnreadCount = async (userId: string): Promise<number> => {
     [userId]
   );
   return parseInt(row?.count ?? "0", 10);
+};
+
+export const notifyAffiliateSale = async (
+  creatorId: string,
+  productTitle: string,
+  amountCents: number,
+  buyerName: string,
+  affiliateName: string
+): Promise<void> => {
+  const amountNGN = (amountCents / 100).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'NGN',
+  });
+
+  await createNotification(
+    creatorId,
+    'affiliate_sale',
+    'Affiliate sale 🤝',
+    `${affiliateName} just drove a sale of "${productTitle}" for ${amountNGN}`,
+    { product_title: productTitle, amount_cents: amountCents, buyer_name: buyerName, affiliate_name: affiliateName }
+  );
+};
+
+export const notifyCommissionEarned = async (
+  affiliateUserId: string,
+  productTitle: string,
+  commissionCents: number
+): Promise<void> => {
+  const amountNGN = (commissionCents / 100).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'NGN',
+  });
+
+  await createNotification(
+    affiliateUserId,
+    'commission_earned',
+    'Commission earned 💰',
+    `You earned ${amountNGN} in commission on a sale of "${productTitle}"`,
+    { product_title: productTitle, commission_cents: commissionCents }
+  );
+};
+
+// notification.service.ts — add
+
+export const broadcastToCreators = async (
+  title: string,
+  message: string
+): Promise<void> => {
+  const { rows: creators } = await pool.query<{ user_id: string }>(
+    `SELECT user_id FROM creator_profiles`
+  );
+
+  await Promise.all(
+    creators.map((c) =>
+      createNotification(c.user_id, 'app_update', title, message)
+    )
+  );
 };

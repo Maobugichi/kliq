@@ -2,8 +2,8 @@ import crypto from "crypto";
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
 import cloudinary from "../config/cloudinary.js";
-import { Pool, type PoolClient } from "pg";
-
+import {  type QueryResult, type QueryResultRow } from "pg";
+import { AppError } from "../errors/appError.js";
 
 export interface AccessToken {
   id: string;
@@ -17,22 +17,42 @@ export interface AccessToken {
   max_downloads: number;
   revoked: boolean;
   created_at: Date;
+};
+
+const TOKEN_HMAC_SECRET = process.env.TOKEN_HMAC_SECRET!;
+
+
+export const hashSecret = (secret: string): string => {
+  return crypto
+    .createHmac("sha256", TOKEN_HMAC_SECRET)
+    .update(secret)
+    .digest("hex");
+};
+
+interface ProductFile {
+  public_id: string;
+  original_name: string | null;
+  format: string | null;
 }
 
-/**
- * GENERATE ACCESS TOKEN
- */
+const sanitiseHeader = (value: string | undefined, maxLen = 512): string | null => {
+  if (!value) return null;
+  return value.replace(/[\r\n]/g, " ").slice(0, maxLen);
+};
+
+interface Queryable {
+  query<T extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: unknown[]
+  ): Promise<QueryResult<T>>;
+}
+
 export const generateAccessToken = async (
   buyerId: string,
   productId: string,
   orderId: string,
-   db: Pool | PoolClient = pool 
+   db: Queryable = pool 
 ): Promise<string> => {
-  /**
-   * TOKEN FORMAT:
-   * tokenId.secret
-   */
-
   const tokenId = `atk_${crypto.randomUUID()}`;
 
   const secret = crypto.randomBytes(32).toString("hex");
@@ -40,7 +60,7 @@ export const generateAccessToken = async (
   const rawToken = `${tokenId}~${secret}`;
 
  
-  const tokenHash = await bcrypt.hash(secret, 10);
+  const tokenHash = hashSecret(secret);
 
   const expiresAt = new Date(
     Date.now() + 365 * 24 * 60 * 60 * 1000
@@ -73,12 +93,6 @@ export const generateAccessToken = async (
 };
 
 
-
-
-
-/**
- * REDEEM ACCESS TOKEN
- */
 export const redeemAccessToken = async (
   rawToken: string,
   ipAddress?: string,
@@ -101,10 +115,6 @@ export const redeemAccessToken = async (
   try {
     await client.query("BEGIN");
 
-    /**
-     * CONCURRENCY SAFE:
-     * Lock token row during redemption
-     */
     const { rows } = await client.query<AccessToken>(
       `
       SELECT *
@@ -120,32 +130,23 @@ export const redeemAccessToken = async (
     const matched = rows[0];
 
     if (!matched) {
-      throw new Error("Invalid or expired download token");
+      throw new AppError("Invalid or expired download token", 401);
     }
-    
-    
 
-    const isMatch = await bcrypt.compare(
-      secret,
-      matched.token_hash
+    const isMatch = crypto.timingSafeEqual(
+      Buffer.from(hashSecret(secret)),
+      Buffer.from(matched.token_hash)
     );
 
-
     if (!isMatch) {
-      throw new Error("Invalid or expired download token");
+      throw new AppError("Invalid or expired download token", 401);
     }
 
     if (matched.used_count >= matched.max_downloads) {
-      throw new Error(
-        "Download limit reached for this purchase"
-      );
+      throw new AppError("Download limit reached for this purchase", 403);
     }
 
-    const { rows: files } = await client.query<{
-      public_id: string;
-      original_name: string | null;
-      format: string | null;
-    }>(
+    const { rows: files } = await client.query<ProductFile>(
       `
       SELECT public_id, original_name, format
       FROM product_files
@@ -159,9 +160,6 @@ export const redeemAccessToken = async (
       throw new Error("Product file not found");
     }
 
-    /**
-     * Increment usage count
-     */
     await client.query(
       `
       UPDATE access_tokens
@@ -171,9 +169,7 @@ export const redeemAccessToken = async (
       [matched.id]
     );
 
-    /**
-     * Log download
-     */
+
     await client.query(
       `
       INSERT INTO download_logs
@@ -190,17 +186,11 @@ export const redeemAccessToken = async (
         matched.buyer_id,
         matched.product_id,
         matched.id,
-        ipAddress ?? null,
-        userAgent ?? null,
+        sanitiseHeader(ipAddress) ?? null,
+        sanitiseHeader(userAgent) ?? null,
       ]
     );
 
-    await client.query("COMMIT");
-
-    /**
-     * Generate signed download URLs
-     */
-    
     const downloads = files.map((file) => ({
       filename: file.original_name,
       url: cloudinary.url(file.public_id, {
@@ -212,7 +202,7 @@ export const redeemAccessToken = async (
       }),
     }));
 
-  
+    await client.query("COMMIT");
 
     return { downloads };
   } catch (err) {
@@ -222,7 +212,7 @@ export const redeemAccessToken = async (
     client.release();
   }
 };
-// ─── Revoke ───────────────────────────────────────────────────────────────────
+
 
 export const revokeAccessToken = async (orderId: string): Promise<void> => {
   const { rowCount } = await pool.query(
@@ -230,7 +220,7 @@ export const revokeAccessToken = async (orderId: string): Promise<void> => {
     [orderId]
   );
 
-  if (!rowCount || rowCount === 0) {
+  if (!rowCount) {
     throw new Error("Access token not found for this order");
   }
 };

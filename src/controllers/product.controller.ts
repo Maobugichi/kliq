@@ -15,7 +15,6 @@ import {
 } from "../services/product.service.js";
 import { findCreatorByUserId } from "../services/creator.service.js";
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
 
 async function getCreatorProfile(userId: string, res: Response) {
   const profile = await findCreatorByUserId(userId);
@@ -27,14 +26,12 @@ async function getCreatorProfile(userId: string, res: Response) {
   return profile;
 }
 
-// ─── Controllers ──────────────────────────────────────────────────────────────
-
 export const create = async (req: Request, res: Response) => {
   try {
     const profile = await getCreatorProfile(req.user!.id, res);
     if (!profile) return;
 
-    const { title, description, price_cents, thumbnail } = req.body as Omit<
+    const { title, description, price_cents, thumbnail, category } = req.body as Omit<
       CreateProductInput,
       "creator_id"
     >;
@@ -46,12 +43,21 @@ export const create = async (req: Request, res: Response) => {
       });
     }
 
+    const validCategories = ["ebook", "course", "template", "design", "music", "video", "other"];
+    if (category !== undefined && !validCategories.includes(category)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid category",
+      });
+    }
+
     const product = await createProduct({
       creator_id: profile.id,
       title,
       price_cents,
       ...(description !== undefined && { description }),
       ...(thumbnail !== undefined && { thumbnail }),
+      ...(category !== undefined && { category }),
     });
 
     return res.status(201).json({ success: true, data: product });
@@ -126,8 +132,12 @@ export const update = async (req: Request, res: Response) => {
 
     
     if (req.file) {
-      // pass the file path/url through to the service however your cloudinary util works
-      updates.thumbnail = req.file.path; // or req.file.filename depending on your storage config
+      updates.thumbnail = req.file.path; 
+    }
+
+    const validCategories = ["ebook", "course", "template", "design", "music", "video", "other"];
+    if (updates.category !== undefined && !validCategories.includes(updates.category)) {
+      return res.status(400).json({ success: false, message: "Invalid category" });
     }
 
     if (!updates || Object.keys(updates).length === 0) {
@@ -229,10 +239,11 @@ export const remove = async (req: Request, res: Response) => {
 
 export const listPublished = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { search, sort, page } = req.query as {
+    const { search, sort, page, category } = req.query as {
       search?: string;
       sort?: string;
       page?: string;
+      category?:string
     };
  
     // ── Validate sort param ───────────────────────────────────────────────
@@ -242,7 +253,12 @@ export const listPublished = async (req: Request, res: Response): Promise<void> 
         ? (sort as PublishedProductSortOption)
         : 'latest';
  
-    // ── Validate and coerce page param ────────────────────────────────────
+   const validCategories = ["ebook", "course", "template", "design", "music", "video", "other"];
+    const resolvedCategory =
+      category !== undefined && validCategories.includes(category)
+        ? (category as ListPublishedProductsInput["category"])
+        : undefined;
+
     const parsedPage = page !== undefined ? parseInt(page, 10) : 1;
     const resolvedPage = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
  
@@ -251,8 +267,13 @@ export const listPublished = async (req: Request, res: Response): Promise<void> 
       sort: resolvedSort,
       page: resolvedPage,
     };
+    
     if (search !== undefined && search.trim().length > 0) {
       input.search = search.trim();
+    }
+
+     if (resolvedCategory !== undefined) {
+      input.category = resolvedCategory;
     }
  
     const result = await listPublishedProducts(input);

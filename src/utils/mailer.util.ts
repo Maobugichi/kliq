@@ -98,6 +98,25 @@ const button = (label: string, url: string) => `
   </div>
 `;
 
+const ghostButton = (label: string, url: string) => `
+  <div style="text-align:center;margin:0 0 26px;">
+    <a href="${url}"
+      style="
+        display:inline-block;
+        padding:12px 24px;
+        background:transparent;
+        color:#FF5C00;
+        text-decoration:none;
+        border-radius:10px;
+        font-weight:600;
+        font-size:13px;
+        border:1px solid rgba(255,92,0,0.4);
+      ">
+      ${label}
+    </a>
+  </div>
+`;
+
 const codeBox = (value: string) => `
   <code style="
     display:block;
@@ -167,7 +186,8 @@ export const sendDownloadEmail = async (
   to: string,
   name: string,
   productTitle: string,
-  token: string
+  token: string,
+  magicLinkUrl?: string
 ): Promise<void> => {
   const downloadUrl = `${process.env.FRONTEND_URL}/download/${token}`;
 
@@ -181,6 +201,13 @@ export const sendDownloadEmail = async (
     ${text("This download link is time-limited and tied to your purchase. You can use it up to 3 times.")}
 
     ${text("Keep this email safe — it serves as your proof of purchase.")}
+
+    ${
+      magicLinkUrl
+        ? `${text(`Want to see all your purchases in one place?`)}
+           ${ghostButton("View your purchases →", magicLinkUrl)}`
+        : ""
+    }
   `);
 
   await sendEmail({

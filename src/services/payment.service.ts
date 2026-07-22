@@ -1,11 +1,12 @@
-import { resolveAffiliateCode, recordAffiliateConversion } from "./affiliate.service.js";
+import { resolveAffiliateCode, recordAffiliateConversion, sendAffiliateConversionNotification } from "./affiliate.service.js";
 import crypto from "crypto";
 import pool from "../config/db.js";
 import { generateAccessToken } from "./access-token.service.js";
 import { sendDownloadEmail } from "../utils/mailer.util.js";
 import { applyCoupon, incrementCouponUsage } from "./coupon.service.js";
-import { notifyNewSale } from "./notification.service.js";
+import { notifyNewSale, notifyAffiliateSale, notifyCommissionEarned } from "./notification.service.js";
 import { enqueueOrderDownload, enqueueOrderSale } from "../utils/emailqueue.js";
+import { generateMagicLinkToken } from "../utils/token.util.js";
 
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY as string;
@@ -24,11 +25,12 @@ export interface Order {
 }
 
 interface InitiatePaymentInput {
-  buyerId: string;
+  buyerId?: string;
   productId: string;
   email: string;
   couponCode?: string;
   affiliateCode?: string;
+  guestEmail?: string;
 }
 
 export interface InitiatePaymentResult {
@@ -59,13 +61,43 @@ const paystackRequest = async (
   return data;
 };
 
+export const findOrCreateGuestBuyer = async (
+  email: string
+): Promise<{ id: string; name: string | null }> => {
+  const {
+    rows: [user],
+  } = await pool.query<{ id: string; name: string | null }>(
+    `INSERT INTO users (email, role)
+     VALUES ($1, 'guest')
+     ON CONFLICT (email) DO UPDATE SET updated_at = NOW()
+     RETURNING id, name`,
+    [email]
+  );
+
+  if (!user) throw new Error("Failed to resolve guest buyer");
+
+  return user;
+};
+
 export const initiatePayment = async ({
   buyerId,
+  guestEmail,
   productId,
   email,
   couponCode,
   affiliateCode,
 }: InitiatePaymentInput): Promise<InitiatePaymentResult> => {
+  if (!buyerId && !guestEmail) {
+    throw new Error("Either buyerId or guestEmail is required");
+  }
+
+  let resolvedBuyerId = buyerId;
+
+  if (!resolvedBuyerId) {
+    const guest = await findOrCreateGuestBuyer(guestEmail!);
+    resolvedBuyerId = guest.id;
+  }
+
   const {
     rows: [product],
   } = await pool.query<{
@@ -85,7 +117,7 @@ export const initiatePayment = async ({
     rows: [existingOrder],
   } = await pool.query<{ id: string }>(
     `SELECT id FROM orders WHERE buyer_id = $1 AND product_id = $2 AND status = 'paid'`,
-    [buyerId, productId]
+    [resolvedBuyerId, productId]
   );
 
   if (existingOrder) throw new Error("You already own this product");
@@ -103,11 +135,11 @@ export const initiatePayment = async ({
 
   const ref = `cl-${crypto.randomUUID()}`;
 
-  // ── Free order ─────────────────────────────────────────────────────────────
   if (finalPriceCents === 0) {
     const client = await pool.connect();
     let rawToken: string;
     let buyerName: string;
+    let buyerRole: string | null;
 
     try {
       await client.query("BEGIN");
@@ -118,18 +150,22 @@ export const initiatePayment = async ({
         `INSERT INTO orders (buyer_id, product_id, amount_cents, paystack_ref, status)
          VALUES ($1, $2, 0, $3, 'paid')
          RETURNING id`,
-        [buyerId, productId, ref]
+        [resolvedBuyerId, productId, ref]
       );
 
       if (!order) throw new Error("Failed to create order");
 
-      rawToken = await generateAccessToken(buyerId, productId, order.id,client);
+      rawToken = await generateAccessToken(resolvedBuyerId, productId, order.id, client);
 
       const {
         rows: [buyer],
-      } = await client.query<{ name: string }>(`SELECT name FROM users WHERE id = $1`, [buyerId]);
+      } = await client.query<{ name: string; role: string | null }>(
+        `SELECT name, role FROM users WHERE id = $1`,
+        [resolvedBuyerId]
+      );
 
       buyerName = buyer?.name ?? "there";
+      buyerRole = buyer?.role ?? null;
 
       if (couponId) await incrementCouponUsage(couponId);
 
@@ -140,13 +176,18 @@ export const initiatePayment = async ({
     } finally {
       client.release();
     }
-   
+
+    const isGuest = buyerRole! === "guest";
+    const magicLinkUrl = isGuest
+      ? `${process.env.FRONTEND_URL}/buyer/library/magic?token=${generateMagicLinkToken(resolvedBuyerId)}`
+      : undefined;
 
     await enqueueOrderDownload({
       email,
       name: buyerName,
       productTitle: product.title,
       token: rawToken!,
+      ...(magicLinkUrl && { magicLinkUrl }),
     });
 
     return {
@@ -159,15 +200,11 @@ export const initiatePayment = async ({
     };
   }
 
-    // ── Affiliate validation ────────────────────────────────────────────────────
   let resolvedAffiliate = null;
   if (affiliateCode) {
     resolvedAffiliate = await resolveAffiliateCode(affiliateCode);
     if (!resolvedAffiliate) throw new Error("Invalid or inactive affiliate code");
-
-     
   }
-
 
   await pool.query(
     `INSERT INTO orders (
@@ -181,22 +218,21 @@ export const initiatePayment = async ({
     )
     VALUES ($1,$2,$3,$4,$5,'pending',$6)`,
     [
-      buyerId,
+      resolvedBuyerId,
       productId,
       finalPriceCents,
       "NGN",
       ref,
       resolvedAffiliate?.code ?? null,
     ]
-    );
-  
+  );
 
   const data = await paystackRequest("POST", "/transaction/initialize", {
     email,
     amount: finalPriceCents,
     reference: ref,
     metadata: {
-      buyer_id: buyerId,
+      buyer_id: resolvedBuyerId,
       product_id: productId,
       product_title: product.title,
       coupon_id: couponId ?? undefined,
@@ -219,10 +255,7 @@ export const initiatePayment = async ({
 
 export const verifyWebhookSignature = (rawBody: Buffer, signature: string): boolean => {
   const hash = crypto.createHmac("sha512", PAYSTACK_SECRET).update(rawBody).digest("hex");
-  return crypto.timingSafeEqual(
-    Buffer.from(hash),
-    Buffer.from(signature)
-  );
+  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(signature));
 };
 
 export const handlePaystackWebhook = async (
@@ -232,6 +265,7 @@ export const handlePaystackWebhook = async (
   if (event !== "charge.success") return;
 
   const ref = data.reference as string;
+  console.log(`[webhook] ① received charge.success for ref: ${ref}`);
 
   if (!ref) {
     throw new Error("Missing transaction reference");
@@ -239,77 +273,78 @@ export const handlePaystackWebhook = async (
 
   const {
     rows: [order],
-  } = await pool.query<
-    Order & {
-      coupon_id: string | null;
-      affiliate_code: string | null;
-    }
-  >(
-    `SELECT *
-    FROM orders
-    WHERE paystack_ref = $1
-    AND status = 'pending'`,
+  } = await pool.query<Order & { coupon_id: string | null; affiliate_code: string | null }>(
+    `SELECT * FROM orders WHERE paystack_ref = $1 AND status = 'pending'`,
     [ref]
   );
 
   if (!order) {
+    console.log(`[webhook] ② no pending order found for ref: ${ref} — already processed or unknown ref`);
     return;
   }
 
-  const verifiedTx = await verifyTransaction(ref);
+  console.log(`[webhook] ② found pending order: ${order.id}, buyer_id: ${order.buyer_id}, amount: ${order.amount_cents}, currency: ${order.currency}`);
 
+  const verifiedTx = await verifyTransaction(ref);
   const { data: verifiedData } = verifiedTx;
+
+  console.log(`[webhook] ③ paystack verification — status: ${verifiedData.status}, amount: ${verifiedData.amount}, currency: ${verifiedData.currency}`);
 
   if (verifiedData.status !== "success") {
     throw new Error(`Paystack verification failed for ${ref}`);
   }
 
   if (Number(verifiedData.amount) !== Number(order.amount_cents)) {
-    throw new Error(
-      `Amount mismatch. Expected ${order.amount_cents}, got ${verifiedData.amount}`
-    );
+   
+    throw new Error(`Amount mismatch. Expected ${order.amount_cents}, got ${verifiedData.amount}`);
   }
 
   if (verifiedData.currency?.toUpperCase() !== order.currency?.toUpperCase()) {
-    throw new Error(
-      `Currency mismatch. Expected ${order.currency}, got ${verifiedData.currency}`
-    );
+    console.error(`[webhook] ④ currency mismatch — expected: ${order.currency}, got: ${verifiedData.currency}`);
+    throw new Error(`Currency mismatch. Expected ${order.currency}, got ${verifiedData.currency}`);
   }
 
-  const {
-    rows: [buyer],
-  } = await pool.query<{ email: string; name: string }>(
-    `SELECT email, name FROM users WHERE id = $1`,
+
+
+  const { rows: [buyer] } = await pool.query<{ email: string; name: string; role: string | null }>(
+    `SELECT email, name, role FROM users WHERE id = $1`,
     [order.buyer_id]
   );
 
- const { rows: [product] } = await pool.query<{ 
-  title: string; 
-  creator_id: string; 
-  creator_user_id: string;
-  creator_email: string;   // ← add
-  creator_name: string;    // ← add
-}>(
-  `SELECT p.title, p.creator_id, c.user_id AS creator_user_id,
-          u.email AS creator_email, u.name AS creator_name
-   FROM products p
-   JOIN creator_profiles c ON c.id = p.creator_id
-   JOIN users u ON u.id = c.user_id
-   WHERE p.id = $1`,
-  [order.product_id]
-);
+ 
+
+  const { rows: [product] } = await pool.query<{
+    title: string;
+    creator_id: string;
+    creator_user_id: string;
+    creator_email: string;
+    creator_name: string;
+  }>(
+    `SELECT p.title, p.creator_id, c.user_id AS creator_user_id,
+            u.email AS creator_email, u.name AS creator_name
+     FROM products p
+     JOIN creator_profiles c ON c.id = p.creator_id
+     JOIN users u ON u.id = c.user_id
+     WHERE p.id = $1`,
+    [order.product_id]
+  );
+
+ 
 
   if (!product) throw new Error("Product not found");
 
   const client = await pool.connect();
   let rawToken: string;
+  // Populated inside the transaction if this order has an affiliate attached.
+  // Only used to fire the commission-earned notification, and only after
+  // the transaction below has actually committed.
+  let affiliateConversion: { affiliateUserId: string; affiliateId: string; commissionCents: number } | null = null;
 
   try {
     await client.query("BEGIN");
+    console.log(`[webhook] ⑦ transaction BEGIN`);
 
-    const {
-      rows: [lockedOrder],
-    } = await client.query(
+    const { rows: [lockedOrder] } = await client.query(
       `SELECT id FROM orders WHERE id = $1 FOR UPDATE`,
       [order.id]
     );
@@ -325,37 +360,77 @@ export const handlePaystackWebhook = async (
       [order.id]
     );
 
+    
+
     if (rowCount === 0) {
+      
       await client.query("ROLLBACK");
       return;
     }
 
     rawToken = await generateAccessToken(order.buyer_id, order.product_id, order.id, client);
+  
 
     if (order.affiliate_code) {
-      await recordAffiliateConversion(order.affiliate_code, order.id, order.amount_cents, product.title);
+      // Runs on this same transaction client — if anything below throws and
+      // this transaction rolls back, the conversion record rolls back with it.
+      affiliateConversion = await recordAffiliateConversion(
+        client,
+        order.affiliate_code,
+        order.id,
+        order.amount_cents
+      );
+      console.log(`[webhook] ⑨ affiliate conversion recorded ✓`);
     }
 
     if (order.coupon_id) {
       await incrementCouponUsage(order.coupon_id);
+      console.log(`[webhook] ⑨ coupon usage incremented ✓`);
     }
 
     await client.query("COMMIT");
+    console.log(`[webhook] ⑩ COMMIT ✓ — order ${order.id} marked paid`);
   } catch (err) {
     await client.query("ROLLBACK");
+    console.error(`[webhook] ⑩ transaction error, ROLLBACK:`, err);
     throw err;
   } finally {
     client.release();
   }
 
+  // Everything past this point only runs once the transaction above has
+  // actually committed — the order is durably 'paid' before any email fires.
+  if (affiliateConversion) {
+    await notifyCommissionEarned(
+      affiliateConversion.affiliateUserId,
+      product.title,
+      affiliateConversion.commissionCents
+    );
+    await sendAffiliateConversionNotification(
+      affiliateConversion.affiliateUserId,
+      product.title,
+      affiliateConversion.commissionCents
+    );
+  }
+
   if (buyer && product) {
-   
+    const isGuest = buyer.role === "guest";
+    const magicLinkUrl = isGuest
+      ? `${process.env.FRONTEND_URL}/buyer/library/magic?token=${generateMagicLinkToken(order.buyer_id)}`
+      : undefined;
+
+    console.log(`[webhook] ⑪ enqueueing download email — isGuest: ${isGuest}, hasMagicLink: ${!!magicLinkUrl}`);
+
     await enqueueOrderDownload({
       email: buyer.email,
       name: buyer.name,
       productTitle: product.title,
       token: rawToken!,
+      ...(magicLinkUrl && { magicLinkUrl }),
     });
+
+    console.log(`[webhook] ⑫ enqueueing sale email`);
+
     await enqueueOrderSale({
       creatorId: product.creator_user_id,
       creatorEmail: product.creator_email,
@@ -364,6 +439,33 @@ export const handlePaystackWebhook = async (
       amountCents: order.amount_cents,
       buyerName: buyer.name,
     });
+
+    if (order.affiliate_code) {
+      const { rows: [affiliate] } = await pool.query<{ name: string | null }>(
+        `SELECT u.name
+         FROM affiliates a
+         JOIN users u ON u.id = a.affiliate_user_id
+         WHERE a.code = $1`,
+        [order.affiliate_code]
+      );
+
+      await notifyAffiliateSale(
+        product.creator_user_id,
+        product.title,
+        order.amount_cents,
+        buyer.name,
+        affiliate?.name ?? 'An affiliate'
+      );
+    } else {
+      await notifyNewSale(
+        product.creator_user_id,
+        product.title,
+        order.amount_cents,
+        buyer.name
+      );
+    }
+
+    console.log(`[webhook] ⑬ all done ✓`);
   }
 };
 
@@ -379,7 +481,7 @@ export const verifyTransaction = async (reference: string) => {
   );
 
   return {
-    data: paystackResponse.data,  // ← unwrap .data here so callers get the tx object directly
+    data: paystackResponse.data,
     order: joinOrder ?? null,
   };
 };

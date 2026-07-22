@@ -18,6 +18,7 @@ import adminRouter from "./routes/admin.routes.js";
 import buyerRouter from "./routes/buyer.route.js";
 import couponRouter from "./routes/coupon.route.js";
 import affiliateRouter from "./routes/affiliate.route.js";
+import affiliatePayoutRouter from "./routes/affiliate-payout.route.js"
 import notificationRouter from "./routes/notification.route.js";
 import waitlistRouter from "./routes/waitlist.routes.js";
 import type multer from "multer";
@@ -25,16 +26,18 @@ import { startEmailWorker } from "./utils/emailqueue.js";
 import cookieParser from "cookie-parser";
 import passport, { initPassport } from "./config/passport.config.js";
 import oauthRoutes from "./routes/oauth.routes.js";
+import { createServer } from "http";
+import { initSocket } from "./socket.js";
+import { allowedOrigins } from "./config/cors.config.js";
 
 const app = express();
 
+const httpServer = createServer(app);
+initSocket(httpServer);
+
 app.set("trust proxy", 1);
 
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  "https://creatorlock.co",
-  "https://www.creatorlock.co",
-].filter(Boolean) as string[];
+
 
 app.use(cors({
   origin: allowedOrigins,
@@ -70,7 +73,7 @@ app.use("/api", adminRouter);
 app.use("/api", buyerRouter);
 app.use("/api", couponRouter);
 app.use("/api", affiliateRouter);
-
+app.use("/api", affiliatePayoutRouter);
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok", time: new Date().toISOString() });
@@ -122,7 +125,7 @@ process.on("unhandledRejection", (reason) => {
 startEmailWorker();
 
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
+const server = httpServer.listen(PORT, () => {
   console.log(`kliq server running on port ${PORT}`);
 });
 

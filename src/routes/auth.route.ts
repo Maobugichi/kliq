@@ -7,8 +7,10 @@ import {
   logoutAllController,
   refreshToken,
   completeOnboarding,
+  confirmEmailVerification,
+ 
 } from "../controllers/auth.controller.js";
-import { sendEmailVerification, verifyEmailToken } from "../services/emailVerification.service.js";
+import { sendEmailVerification } from "../services/emailVerification.service.js";
 import { requestPasswordReset, resetPassword } from "../services/passwordReset.service.js";
 import { authenticateToken } from "../middleware/auth.middleware.js";
 import { defaultLimiter, strictLimiter } from "../utils/ratelimiter.js";
@@ -17,41 +19,32 @@ const router = Router();
 
 router.post("/auth/signup", strictLimiter, signup);
 router.post("/auth/login", strictLimiter, login);
-router.post("/auth/logout", logout);
-router.post("/auth/logout-all", authenticateToken, logoutAllController);
-router.post("/auth/refresh", refreshToken);
+router.post("/auth/logout", defaultLimiter, logout);
+router.post("/auth/logout-all", defaultLimiter, authenticateToken, logoutAllController);
+router.post("/auth/refresh", defaultLimiter, refreshToken);
 
 router.post("/auth/onboarding", defaultLimiter, authenticateToken, completeOnboarding);
 
 
-router.post("/auth/verify-email/send", authenticateToken, async (req: Request, res: Response) => {
-  try {
-    const { id, email } = req.user!;
-    await sendEmailVerification(id, email);
-    return res.status(200).json({ success: true, message: "Verification email sent" });
-  } catch (err) {
-    console.error("sendEmailVerification error:", err);
-    return res.status(500).json({ success: false, message: "Internal Server Error" });
+router.post(
+  "/auth/verify-email/send",
+  strictLimiter,
+  authenticateToken,
+  async (req: Request, res: Response) => {
+    try {
+      const { id, email } = req.user!;
+      await sendEmailVerification(id, email);
+      return res.status(200).json({ success: true, message: "Verification email sent" });
+    } catch (err) {
+      console.error("sendEmailVerification error:", err);
+      return res.status(500).json({ success: false, message: "Internal Server Error" });
+    }
   }
-});
+);
 
-router.post("/auth/verify-email/confirm", async (req: Request, res: Response) => {
-  try {
-    const token = req.body.token as string | undefined;
-    if (!token) return res.status(400).json({ success: false, message: "token is required" });
+router.post("/auth/verify-email/confirm", strictLimiter, confirmEmailVerification);
 
-    await verifyEmailToken(token);
-    return res.status(200).json({ success: true, message: "Email verified successfully" });
-  } catch (err) {
-    if (err instanceof Error && err.message === "Invalid or expired verification token")
-      return res.status(400).json({ success: false, message: err.message });
-    console.error("verifyEmailToken error:", err);
-    return res.status(500).json({ success: false, message: "Internal Server Error" });
-  }
-});
-
-
-router.post("/auth/forgot-password", async (req: Request, res: Response) => {
+router.post("/auth/forgot-password", strictLimiter, async (req: Request, res: Response) => {
   try {
     const email = req.body.email as string | undefined;
     if (!email) return res.status(400).json({ success: false, message: "email is required" });
@@ -64,7 +57,7 @@ router.post("/auth/forgot-password", async (req: Request, res: Response) => {
   }
 });
 
-router.post("/auth/reset-password", async (req: Request, res: Response) => {
+router.post("/auth/reset-password", strictLimiter, async (req: Request, res: Response) => {
   try {
     const token = req.body.token as string | undefined;
     const new_password = req.body.new_password as string | undefined;

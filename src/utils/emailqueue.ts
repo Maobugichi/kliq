@@ -27,10 +27,10 @@ export const connection = new Redis({
   retryStrategy: (times: number) => Math.min(times * 200, 5_000),
 });
 
-// ─── Template variants ───────────────────────────────────────────────────────
+
 
 import type { BuyerEmailTemplate } from "../types/email.types.js";
-export type { BuyerEmailTemplate }; // re-export so existing callers still work
+export type { BuyerEmailTemplate }; 
 
 export type EmailJobData =
   | { name: "waitlist.confirmation";  payload: { email: string } }
@@ -44,7 +44,7 @@ export type EmailJobData =
         to: string; affiliateName: string; productTitle: string;
         commissionCents: number; totalEarnedCents: number;
       }}
-  | { name: "order.download";         payload: { email: string; name: string; productTitle: string; token: string } }
+  | { name: "order.download";         payload: { email: string; name: string; productTitle: string; token: string;  magicLinkUrl?: string; } }
   | { name: "order.sale";             payload: {
         creatorId: string;
         creatorEmail: string;
@@ -157,7 +157,8 @@ export const startEmailWorker = (): Worker<EmailJobData> => {
             payload.email,
             payload.name,
             payload.productTitle,
-            payload.token
+            payload.token,
+            payload.magicLinkUrl
           );
           break;
 

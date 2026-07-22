@@ -1,6 +1,21 @@
 import type { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../utils/token.util.js";
 
+export const requireVerifiedEmail = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  if (!req.user?.email_verified) {
+    res.status(403).json({
+      success: false,
+      message: "Please verify your email before continuing",
+    });
+    return;
+  }
+  next();
+};
+
 export const authenticateToken = (
   req: Request,
   res: Response,
@@ -25,6 +40,8 @@ export const authenticateToken = (
       id: payload.id,
       email: payload.email,
       role: payload.role as "creator" | "buyer" | "admin",
+      email_verified: payload.email_verified,
+
     };
     next();
   } catch {
@@ -51,6 +68,7 @@ export const authenticateOptional = (
         id: payload.id,
         email: payload.email,
         role: payload.role as "creator" | "buyer" | "admin",
+        email_verified: payload.email_verified,
       };
     } catch {}
   }

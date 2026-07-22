@@ -2,6 +2,7 @@ import pool from "../config/db.js";
 import { enqueueBuyerBroadcast } from "../utils/emailqueue.js";
 import type { BuyerEmailTemplate } from "../types/email.types.js";
 import { CreatorStatus, type BuyerRow, type CreatorProfile, type UpdateCreatorProfileInput } from "../types/creator.types.js";
+import { generateAccessToken } from "../utils/token.util.js";
 
 export const findCreatorByUserId = async (
   userId: string
@@ -248,4 +249,72 @@ export const sendEmailToBuyers = async (
   );
 
   return { queued: buyers.length };
+};
+
+// auth.service.ts — new export
+
+export type UpgradeToCreatorInput = { storeSlug: string };
+
+export const upgradeToCreatorService = async (
+  userId: string,
+  data: UpgradeToCreatorInput
+) => {
+  const { storeSlug } = data;
+
+  if (!storeSlug?.trim()) {
+    throw new Error("Store slug is required");
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const { rows: [user] } = await client.query(
+      `SELECT id, email, role, name, email_verified FROM users WHERE id = $1 FOR UPDATE`,
+      [userId]
+    );
+
+    if (!user) throw new Error("User not found");
+    if (user.role === "creator" || user.role === "admin") {
+      throw new Error("Already a creator");
+    }
+
+    await client.query(
+      `UPDATE users SET role = 'creator' WHERE id = $1`,
+      [userId]
+    );
+
+    try {
+      await client.query(
+        `INSERT INTO creator_profiles (user_id, display_name, store_slug, status)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, user.name, storeSlug, CreatorStatus.ACTIVE]
+      );
+    } catch (err: any) {
+      if (err.code === '23505' && err.constraint === 'creator_profiles_store_slug_key') {
+        throw new Error("Slug already taken");
+      }
+      throw err;
+    }
+
+    await client.query("COMMIT");
+
+    const accessToken = generateAccessToken({
+      id: user.id,
+      email: user.email,
+      role: "creator",
+      email_verified: user.email_verified,
+    });
+
+    return {
+      user: { id: user.id, email: user.email, role: "creator", name: user.name },
+      accessToken,
+    };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 };

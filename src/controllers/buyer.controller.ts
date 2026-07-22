@@ -1,5 +1,7 @@
 import type { Request, Response } from 'express';
-import { getBuyerLibrary, getBuyerProfile, resendDownloadEmail, updateBuyerProfile } from '../services/buyer.service.js';
+import { getBuyerLibrary, getBuyerProfile, resendDownloadEmail, updateBuyerProfile, verifyMagicLinkAndGetBuyer } from '../services/buyer.service.js';
+import { generateAccessToken } from '../utils/token.util.js';
+import { ACCESS_COOKIE_OPTIONS } from '../utils/cookie.js';
 
 
 export const getLibrary = async(req:Request,res:Response) => {
@@ -128,4 +130,32 @@ export const updateProfile = async (req: Request, res: Response) => {
     }
 };
  
+ 
+export const verifyMagicLink = async (req: Request, res: Response) => {
+    const frontendUrl = process.env.FRONTEND_URL as string;
+ 
+    try {
+        const token = req.query['token'] as string | undefined;
+ 
+        if (!token) {
+            return res.redirect(`${frontendUrl}/?error=invalid_link`);
+        }
+ 
+        const buyer = await verifyMagicLinkAndGetBuyer(token);
+ 
+        const accessToken = generateAccessToken({
+            id: buyer.id,
+            email: buyer.email,
+            role: buyer.role as "creator" | "buyer" | "admin",
+            email_verified: buyer.email_verified,
+        });
+ 
+        res.cookie('accessToken', accessToken, ACCESS_COOKIE_OPTIONS);
+ 
+        return res.redirect(`${frontendUrl}/library`);
+    } catch (err) {
+        console.error('verifyMagicLink error:', err);
+        return res.redirect(`${frontendUrl}/?error=invalid_link`);
+    }
+};
  

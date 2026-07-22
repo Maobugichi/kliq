@@ -6,11 +6,13 @@ import {
   findCreatorByUserId,
   isSlugAvailable,
   getBuyersForCreator,
-  sendEmailToBuyers
+  sendEmailToBuyers,
+  upgradeToCreatorService
 } from "../services/creator.service.js";
 import { listProductsByCreator } from "../services/product.service.js";
 import type { UpdateCreatorProfileInput } from "../types/creator.types.js";
 import type { BuyerEmailTemplate } from "../types/email.types.js";
+import { ACCESS_COOKIE_OPTIONS } from "../utils/cookie.js";
 
 
 
@@ -251,5 +253,29 @@ export const sendBuyerEmail = async (req: Request, res: Response) => {
     const message = err instanceof Error ? err.message : "Internal Server Error";
     console.error("[sendBuyerEmail] error:", err);
     return res.status(500).json({ success: false, message });
+  }
+};
+
+// auth.controller.ts — new export
+
+export const upgradeToCreator = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { storeSlug } = req.body;
+    const result = await upgradeToCreatorService(userId, { storeSlug });
+
+    res.cookie("accessToken", result.accessToken, ACCESS_COOKIE_OPTIONS);
+
+    return res.status(200).json({ user: result.user });
+  } catch (err: any) {
+    if (err.message === "Slug already taken" || err.message === "Already a creator" || err.message === "Store slug is required") {
+      return res.status(409).json({ message: err.message });
+    }
+    console.error(err);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 };

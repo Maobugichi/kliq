@@ -1,9 +1,16 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import pool from "../config/db.js";
 import { getPlatformFee } from "./config.service.js";
+import {
+  paystackRequest,
+  resolveBankAccount,
+  getBankList,
+  ensurePaystackRecipient,
+  sendPaystackTransfer,
+} from "./paystack-transfer.service.js";
 
-const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY as string;
-const PAYSTACK_BASE   = "https://api.paystack.co";
+
+export { resolveBankAccount, getBankList };
 
 const MINIMUM_PAYOUT_CENTS = 500_000; // ₦5,000
 
@@ -46,28 +53,6 @@ interface RequestPayoutInput {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const paystackRequest = async (
-  method: "GET" | "POST",
-  path: string,
-  body?: Record<string, unknown>,
-  idempotencyKey?: string
-) => {
-  const res = await fetch(`${PAYSTACK_BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${PAYSTACK_SECRET}`,
-      ...(body ? { "Content-Type": "application/json" } : {}),
-      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
-    },
-    body: body ? JSON.stringify(body) : null,
-  });
-
-  const data = await res.json();
-  if (!data.status) throw new Error(data.message ?? "Paystack request failed");
-  return data;
-};
-
-
 const feeToBasisPoints = (fee: number): number => Math.round(fee * 10_000);
 const applyFee = (amountCents: number, feeBasisPoints: number): number =>
   Math.floor((amountCents * (10_000 - feeBasisPoints)) / 10_000);
@@ -87,59 +72,47 @@ const recordPayoutEvent = async (
   );
 };
 
-// ─── Bank helpers ─────────────────────────────────────────────────────────────
 
-export const resolveBankAccount = async (
-  accountNumber: string,
-  bankCode: string
-): Promise<{ account_name: string; account_number: string }> => {
-  const data = await paystackRequest(
-    "GET",
-    `/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`
-  );
+const calculateCreatorBalance = async (
+  executor: Pool | PoolClient,
+  creatorProfileId: string,
+  feeBasisPoints: number
+): Promise<{ total_earned: number; total_paid_out: number; available: number }> => {
+  const [earnedResult, reservedResult] = await Promise.all([
+    executor.query<{ total: string }>(
+      `SELECT COALESCE(SUM(o.amount_cents - COALESCE(ac.commission_cents, 0)), 0) AS total
+       FROM orders o
+       JOIN products pr ON o.product_id = pr.id
+       LEFT JOIN affiliate_conversions ac ON ac.order_id = o.id
+       WHERE pr.creator_id = $1 AND o.status = 'paid'`,
+      [creatorProfileId]
+    ),
+    executor.query<{ total: string }>(
+      `SELECT COALESCE(SUM(amount_cents), 0) AS total
+       FROM payouts
+       WHERE creator_id = $1
+         AND status IN ('pending', 'approved', 'processing', 'paid')`,
+      [creatorProfileId]
+    ),
+  ]);
+
+  const totalEarned = parseInt(earnedResult.rows[0]?.total ?? "0", 10);
+  const totalReserved = parseInt(reservedResult.rows[0]?.total ?? "0", 10);
+  const netEarned = applyFee(totalEarned, feeBasisPoints);
+  const available = Math.max(0, netEarned - totalReserved);
+
   return {
-    account_name: data.data.account_name,
-    account_number: data.data.account_number,
+    total_earned: totalEarned,
+    total_paid_out: totalReserved,
+    available,
   };
 };
 
-export const getBankList = async (): Promise<{ name: string; code: string }[]> => {
-  const data = await paystackRequest("GET", "/bank?currency=NGN&country=nigeria");
-  return data.data.map((b: any) => ({ name: b.name, code: b.code }));
-};
-
-const ensurePaystackRecipient = async (
-  creatorProfileId: string,
-  accountName: string,
-  accountNumber: string,
-  bankCode: string
-): Promise<string> => {
-  const { rows: [profile] } = await pool.query<{ paystack_recipient_code: string | null }>(
-    `SELECT paystack_recipient_code FROM creator_profiles WHERE id = $1`,
-    [creatorProfileId]
-  );
-
-  if (profile?.paystack_recipient_code) {
-    return profile.paystack_recipient_code;
-  }
-
-  const data = await paystackRequest("POST", "/transferrecipient", {
-    type: "nuban",
-    name: accountName,
-    account_number: accountNumber,
-    bank_code: bankCode,
-    currency: "NGN",
-  });
-
-  const recipientCode = data.data.recipient_code as string;
-
-  await pool.query(
-    `UPDATE creator_profiles SET paystack_recipient_code = $1 WHERE id = $2`,
-    [recipientCode, creatorProfileId]
-  );
-
-  return recipientCode;
-};
+// ─── Bank helpers ─────────────────────────────────────────────────────────────
+// resolveBankAccount, getBankList, and ensurePaystackRecipient now live in
+// paystack-transfer.service.ts, shared with the affiliate payout flow.
+// This file's ensurePaystackRecipient calls below pass creator_profiles-specific
+// get/save closures into the generalized shared function.
 
 // ─── Creator requests payout ──────────────────────────────────────────────────
 
@@ -148,7 +121,6 @@ export const requestPayout = async ({
   bankCode,
   accountNumber,
 }: RequestPayoutInput): Promise<Payout> => {
-  // Resolve bank account and platform fee before acquiring lock
   const [resolved, platformFee] = await Promise.all([
     resolveBankAccount(accountNumber, bankCode),
     getPlatformFee(),
@@ -164,8 +136,6 @@ export const requestPayout = async ({
   try {
     await client.query("BEGIN");
 
-    // Lock the creator_profiles row — always exists, prevents concurrent payout requests
-    // even when creator has no prior payouts
     const { rows: [profile] } = await client.query<{ id: string }>(
       `SELECT id FROM creator_profiles WHERE user_id = $1 FOR UPDATE`,
       [userId]
@@ -176,7 +146,6 @@ export const requestPayout = async ({
       throw new Error("Creator profile not found");
     }
 
-    // Block if any in-flight payout exists
     const { rows: [activePayout] } = await client.query<{ id: string }>(
       `SELECT id FROM payouts
        WHERE creator_id = $1 AND status IN ('pending', 'processing', 'approved')`,
@@ -188,26 +157,10 @@ export const requestPayout = async ({
       throw new Error("You already have a payout in progress");
     }
 
-    // Balance = paid orders minus all non-failed/reversed payouts
-    const { rows: [balanceRow] } = await client.query<{ balance: string }>(
-      `SELECT
-         COALESCE((
-           SELECT SUM(o.amount_cents)
-           FROM orders o
-           JOIN products pr ON o.product_id = pr.id
-           WHERE pr.creator_id = $1 AND o.status = 'paid'
-         ), 0) -
-         COALESCE((
-           SELECT SUM(p.amount_cents)
-           FROM payouts p
-           WHERE p.creator_id = $1
-             AND p.status IN ('pending', 'approved', 'processing', 'paid')
-         ), 0) AS balance`,
-      [creatorProfile.id]
-    );
-
-    const grossBalance  = parseInt(balanceRow?.balance ?? "0", 10);
-    const payoutAmount  = applyFee(grossBalance, feeBasisPoints);
+    // Single shared balance calculation — run on this transaction's locked
+    // client, so it reflects the same lock on creator_profiles acquired above
+    const balance = await calculateCreatorBalance(client, creatorProfile.id, feeBasisPoints);
+    const payoutAmount = balance.available;
 
     if (payoutAmount < MINIMUM_PAYOUT_CENTS) {
       await client.query("ROLLBACK");
@@ -255,7 +208,6 @@ export const approvePayout = async (
   payoutId: string,
   adminId: string
 ): Promise<Payout> => {
-  // Verify the actor is actually an admin
   const { rows: [actor] } = await pool.query<{ role: string }>(
     `SELECT role FROM users WHERE id = $1`,
     [adminId]
@@ -306,8 +258,6 @@ export const approvePayout = async (
 export const processPayout = async (payoutId: string, adminId: string): Promise<Payout> => {
   let payout: Payout;
 
-  // Lock and mark as processing before any Paystack calls —
-  // prevents double-send if endpoint is retried concurrently
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -347,26 +297,32 @@ export const processPayout = async (payoutId: string, adminId: string): Promise<
     client.release();
   }
 
-  // Paystack calls outside the transaction — failure leaves status as 'processing'
-  // which the reconciliation worker will recover
   try {
+    const creatorProfileId = (payout as any).profile_id;
+
     const recipientCode = await ensurePaystackRecipient(
-      (payout as any).profile_id,
+      async () => {
+        const { rows: [profile] } = await pool.query<{ paystack_recipient_code: string | null }>(
+          `SELECT paystack_recipient_code FROM creator_profiles WHERE id = $1`,
+          [creatorProfileId]
+        );
+        return profile?.paystack_recipient_code ?? null;
+      },
+      async (code: string) => {
+        await pool.query(
+          `UPDATE creator_profiles SET paystack_recipient_code = $1 WHERE id = $2`,
+          [code, creatorProfileId]
+        );
+      },
       payout.account_name!,
       payout.account_number!,
       payout.bank_code!
     );
 
-    // Idempotency key prevents duplicate transfers on retry
-    const transferData = await paystackRequest(
-      "POST",
-      "/transfer",
-      {
-        source: "balance",
-        amount: payout.amount_cents,
-        recipient: recipientCode,
-        reason: `CreatorLock payout — ${payoutId}`,
-      },
+    const transferResult = await sendPaystackTransfer(
+      payout.amount_cents,
+      recipientCode,
+      `CreatorLock payout — ${payoutId}`,
       payout.idempotency_key ?? payoutId
     );
 
@@ -375,13 +331,12 @@ export const processPayout = async (payoutId: string, adminId: string): Promise<
        SET paystack_transfer_code = $1
        WHERE id = $2
        RETURNING *`,
-      [transferData.data.transfer_code, payoutId]
+      [transferResult.transfer_code, payoutId]
     );
 
     if (!updated) throw new Error("Failed to store transfer code");
     return updated;
   } catch (err) {
-    // Log the failure but don't revert to pending — reconciliation worker handles recovery
     await pool.query(
       `UPDATE payouts SET failure_reason = $1 WHERE id = $2`,
       [(err as Error).message, payoutId]
@@ -415,7 +370,6 @@ export const handlePayoutWebhook = async (
   try {
     await client.query("BEGIN");
 
-    // Re-fetch with lock
     const { rows: [locked] } = await client.query<Payout>(
       `SELECT * FROM payouts WHERE id = $1 FOR UPDATE`,
       [payout.id]
@@ -426,7 +380,6 @@ export const handlePayoutWebhook = async (
       return;
     }
 
-    // Ignore if already in a terminal state
     if (["paid", "failed", "reversed"].includes(locked.status)) {
       await client.query("ROLLBACK");
       return;
@@ -483,7 +436,6 @@ export const handlePayoutWebhook = async (
 // ─── Reconciliation (called by the reconciliation worker) ─────────────────────
 
 export const reconcileStalePayouts = async (): Promise<void> => {
-  // Find payouts stuck in processing for more than 30 minutes
   const { rows: stale } = await pool.query<Payout>(
     `SELECT * FROM payouts
      WHERE status = 'processing'
@@ -492,7 +444,6 @@ export const reconcileStalePayouts = async (): Promise<void> => {
 
   for (const payout of stale) {
     if (!payout.paystack_transfer_code) {
-      // Transfer was never created — safe to revert to approved for retry
       await pool.query(
         `UPDATE payouts
          SET status = 'approved', failure_reason = 'Recovered: transfer never initiated'
@@ -517,7 +468,6 @@ export const reconcileStalePayouts = async (): Promise<void> => {
       continue;
     }
 
-    // Transfer was created — verify its current status with Paystack
     try {
       const data = await paystackRequest(
         "GET",
@@ -533,7 +483,6 @@ export const reconcileStalePayouts = async (): Promise<void> => {
       } else if (transferStatus === "reversed") {
         await handlePayoutWebhook("transfer.reversed", data.data);
       }
-      // otp/pending/processing — still in flight, leave it
     } catch (err) {
       console.error(`[reconcile] Failed to verify transfer ${payout.paystack_transfer_code}:`, err);
     }
@@ -571,49 +520,19 @@ export const getPayoutEvents = async (payoutId: string): Promise<PayoutEvent[]> 
 export const getCreatorBalance = async (
   userId: string
 ): Promise<{ total_earned: number; total_paid_out: number; available: number }> => {
-
-
-  const { rows:[creatorId] } = await pool.query(
+  const { rows: [profile] } = await pool.query<{ id: string }>(
     `SELECT id FROM creator_profiles WHERE user_id = $1`,
     [userId]
-  )
+  );
 
-  const [earnedResult, reservedResult, platformFee] = await Promise.all([
-    pool.query<{ total: string }>(
-      `SELECT COALESCE(SUM(o.amount_cents), 0) AS total
-       FROM orders o
-       JOIN products pr ON o.product_id = pr.id
-       WHERE pr.creator_id = $1 AND o.status = 'paid'`,
-      [creatorId.id]
-    ),
-    pool.query<{ total: string }>(
-      `SELECT COALESCE(SUM(amount_cents), 0) AS total
-       FROM payouts
-       WHERE creator_id = $1
-         AND status IN ('pending', 'approved', 'processing', 'paid')`,
-      [creatorId.id]
-    ),
-    getPlatformFee(),
-  ]);
+  if (!profile) {
+    throw new Error('Creator profile not found');
+  }
 
-  const totalEarned   = parseInt(earnedResult.rows[0]?.total   ?? "0", 10);
-  const totalReserved = parseInt(reservedResult.rows[0]?.total ?? "0", 10);
+  const platformFee = await getPlatformFee();
   const feeBasisPoints = feeToBasisPoints(platformFee);
 
-  const netEarned  = applyFee(totalEarned, feeBasisPoints);
-  const available  = Math.max(0, netEarned - totalReserved);
-
-  console.log("totalEarned:", totalEarned);
-console.log("totalReserved:", totalReserved);
-console.log("feeBasisPoints:", feeBasisPoints);
-console.log("netEarned:", netEarned);
-console.log("available:", available);
-
-  return {
-    total_earned:   totalEarned,
-    total_paid_out: totalReserved,
-    available,
-  };
+  return calculateCreatorBalance(pool, profile.id, feeBasisPoints);
 };
 
 export const getAllPayouts = async (status?: string): Promise<Payout[]> => {

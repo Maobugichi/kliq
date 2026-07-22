@@ -10,17 +10,31 @@ export interface Product {
   description: string | null;
   price_cents: number;
   thumbnail: string | null;
+  category: ProductCategory;
   status: "draft" | "published" | "unpublished" | "deleted";
   created_at: Date;
   updated_at: Date;
 }
 
+export type ProductCategory =
+  | "ebook"
+  | "course"
+  | "template"
+  | "design"
+  | "music"
+  | "video"
+  | "other";
 
 export interface ProductWithFiles extends Product {
   files: ProductFile[];
 }
 
-
+export interface ListPublishedProductsInput {
+  search?: string;
+  sort?: PublishedProductSortOption;
+  category?:ProductCategory
+  page?: number;
+}
 export interface PaginatedProducts {
   products: ProductWithFiles[];
   total: number;
@@ -35,10 +49,11 @@ export type CreateProductInput = Pick<
 > & {
   description?: string;
   thumbnail?: string;
+  category?: ProductCategory;
 };
 
 export type UpdateProductInput = Partial<
-  Pick<Product, "title" | "description" | "price_cents" | "thumbnail">
+  Pick<Product, "title" | "description" | "price_cents" | "thumbnail" | "category">
 >;
 
 
@@ -57,32 +72,28 @@ const withFiles = async (product: Product): Promise<ProductWithFiles> => {
 };
 
 
-
-
-
 export const createProduct = async ({
   creator_id,
   title,
   description,
   price_cents,
   thumbnail,
+  category
 }: CreateProductInput): Promise<Product> => {
   const baseSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const slug = `${baseSlug}-${Date.now()}`;
 
   const { rows: [product] } = await pool.query<Product>(
     `INSERT INTO products
-       (creator_id, title, description, price_cents, thumbnail, slug, status)
-     VALUES ($1,$2,$3,$4,$5,$6,'draft')
+       (creator_id, title, description, price_cents, thumbnail, category, slug, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'draft')
      RETURNING *`,
-    [creator_id, title, description ?? null, price_cents, thumbnail ?? null, slug]
+    [creator_id, title, description ?? null, price_cents, thumbnail ?? null, category ?? 'other', slug]
   );
 
   if (!product) throw new Error("Failed to create product");
   return product;
 };
-
-
 
 export const getProductById = async (
   productId: string,
@@ -98,7 +109,6 @@ export const getProductById = async (
   if (!product) return null;
   return withFiles(product);
 };
-
 
 export const listProductsByCreator = async (
   creatorId: string,
@@ -136,7 +146,6 @@ export const listProductsByCreator = async (
   };
 };
 
-
 export const listOwnProducts = async (
   creatorId: string,
   page = 1,
@@ -170,8 +179,6 @@ export const listOwnProducts = async (
   };
 };
 
-
-
 export const updateProduct = async (
   productId: string,
   creatorId: string,
@@ -182,6 +189,7 @@ export const updateProduct = async (
     "description",
     "price_cents",
     "thumbnail",
+    "category"
   ] as const;
 
   const setClause: string[] = [];
@@ -259,7 +267,6 @@ export const unpublishProduct = async (
 };
 
 
-
 export const deleteProduct = async (
   productId: string,
   creatorId: string
@@ -293,25 +300,19 @@ export const deleteProduct = async (
   );
 };
 
-
-
 export type PublishedProductSortOption = 'latest' | 'popular';
 
-export interface ListPublishedProductsInput {
-  search?: string;
-  sort?: PublishedProductSortOption;
-  page?: number;
-}
+
 
 export const listPublishedProducts = async ({
   search,
   sort = 'latest',
+  category,
   page = 1,
 }: ListPublishedProductsInput): Promise<PaginatedProducts> => {
   const limit = 12;
   const offset = (page - 1) * limit;
 
-  // ── Build WHERE clauses dynamically ──────────────────────────────────────
   const conditions: string[] = [`p.status = 'published'`];
   const params: (string | number)[] = [];
   let paramIndex = 1;
@@ -325,8 +326,13 @@ export const listPublishedProducts = async ({
     paramIndex++;
   }
 
-  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+  if (category) {
+    conditions.push(`p.category = $${paramIndex}`);
+    params.push(category);
+    paramIndex++;
+  }
 
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
  
   const orderClause =
     sort === 'popular'
@@ -348,7 +354,6 @@ export const listPublishedProducts = async ({
     [...params, limit, offset]
   );
 
-  // ── Total count (same filters, no LIMIT) ─────────────────────────────────
   const { rows: [countRow] } = await pool.query<{ count: string }>(
     `SELECT COUNT(*) FROM products p ${whereClause}`,
     params

@@ -4,6 +4,7 @@ import {
   markAsRead,
   markAllAsRead,
   getUnreadCount,
+  broadcastToCreators
 } from "../services/notification.service.js";
 
 
@@ -68,6 +69,21 @@ export const readAll = async (req: Request, res: Response) => {
     return res.status(200).json({ success: true, message: "All notifications marked as read" });
   } catch (err) {
     console.error("markAllAsRead error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+export const broadcast = async (req: Request, res: Response) => {
+  try {
+    const { title, message } = req.body as { title?: string; message?: string };
+    if (!title || !message) {
+      return res.status(400).json({ success: false, message: "title and message are required" });
+    }
+    await broadcastToCreators(title, message);
+    return res.status(200).json({ success: true, message: "Broadcast sent" });
+  } catch (err) {
+    console.error("broadcast error:", err);
     return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };

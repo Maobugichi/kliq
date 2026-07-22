@@ -2,6 +2,7 @@ import crypto from "crypto";
 import bcrypt from "bcrypt";
 import pool from "../config/db.js";
 import { sendVerificationEmail } from "../utils/mailer.util.js";
+import { generateAccessToken } from "../utils/token.util.js";
 
 interface EmailVerificationToken {
   id: string;
@@ -28,52 +29,83 @@ export const sendEmailVerification = async (
   await invalidatePreviousTokens(userId);
 
   const rawToken = crypto.randomBytes(32).toString("hex");
-  const tokenHash = await bcrypt.hash(rawToken, 10);
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-  await pool.query(
+  
+  const { rows: [row] } = await pool.query<{ id: string }>(
     `INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3)`,
-    [userId, tokenHash, expiresAt]
+     VALUES ($1, '', $2)
+     RETURNING id`,
+    [userId, expiresAt]
   );
 
-  
+  if (!row) throw new Error("Failed to create verification token");
 
-  await sendVerificationEmail(email, rawToken);
+ 
+  const tokenWithId = `${row.id}~${rawToken}`;
+  const tokenHash = await bcrypt.hash(tokenWithId, 10);
+
+  await pool.query(
+    `UPDATE email_verification_tokens SET token_hash = $1 WHERE id = $2`,
+    [tokenHash, row.id]
+  );
+
+  await sendVerificationEmail(email, tokenWithId);
 };
 
-export const verifyEmailToken = async (rawToken: string): Promise<void> => {
-  const { rows } = await pool.query<EmailVerificationToken>(
+export const verifyEmailToken = async (rawToken: string): Promise<{ accessToken: string }> => {
+  // Extract the id from the token
+  const [tokenId, secret] = rawToken.split("~");
+  if (!tokenId || !secret) throw new Error("Invalid or expired verification token");
+
+  // Single row lookup
+  const { rows: [row] } = await pool.query<EmailVerificationToken>(
     `SELECT * FROM email_verification_tokens
-     WHERE used = false AND expires_at > NOW()`
+     WHERE id = $1
+       AND used = false
+       AND expires_at > NOW()`,
+    [tokenId]
   );
 
-  let matched: EmailVerificationToken | null = null;
-  for (const row of rows) {
-    const isMatch = await bcrypt.compare(rawToken, row.token_hash);
-    if (isMatch) {
-      matched = row;
-      break;
-    }
-  }
+  if (!row) throw new Error("Invalid or expired verification token");
 
-  if (!matched) throw new Error("Invalid or expired verification token");
+  const isMatch = await bcrypt.compare(rawToken, row.token_hash);
+  if (!isMatch) throw new Error("Invalid or expired verification token");
 
-  
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
     await client.query(
       `UPDATE email_verification_tokens SET used = true WHERE id = $1`,
-      [matched.id]
+      [row.id]
     );
-    await client.query(
-      `UPDATE users SET email_verified = true, updated_at = NOW() WHERE id = $1`,
-      [matched.user_id]
+
+    const { rows: [user] } = await client.query<{
+      id: string;
+      email: string;
+      role: string;
+    }>(
+      `UPDATE users SET email_verified = true, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, email, role`,
+      [row.user_id]
     );
+
     await client.query("COMMIT");
+
+    if (!user) throw new Error("User not found");
+
+    const accessToken = generateAccessToken({
+      id: user.id,
+      email: user.email,
+      role: user.role as "creator" | "buyer" | "admin",
+      email_verified: true,
+    });
+
+    return { accessToken };
   } catch (err) {
-    await client.query("ROLLBACK");
+    try { await client.query("ROLLBACK"); } catch { /* ignore */ }
     throw err;
   } finally {
     client.release();

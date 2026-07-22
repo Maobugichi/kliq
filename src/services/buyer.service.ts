@@ -3,6 +3,8 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { sendDownloadEmail } from "../utils/mailer.util.js";
 import { enqueueOrderDownload } from "../utils/emailqueue.js";
+import { verifyMagicLinkToken } from "../utils/token.util.js";
+import { hashSecret } from "./access-token.service.js";
 
 
 export interface LibraryItem {
@@ -25,6 +27,13 @@ export interface BuyerProfile {
     name: string;
     email: string;
     created_at: Date;
+}
+
+export interface MagicLinkBuyer {
+    id: string;
+    email: string;
+    role: "creator" | "buyer" | "admin" | "guest" | null;
+    email_verified: boolean;
 }
 
 export const getBuyerLibrary = async (
@@ -104,7 +113,7 @@ export const resendDownloadEmail = async (
 
     const newSecret = crypto.randomBytes(32).toString('hex');
     const newRawToken = `${token.token_id}~${newSecret}`;
-    const newHash = await bcrypt.hash(newSecret, 10);
+    const newHash = hashSecret(newSecret); 
 
     await pool.query(
         `UPDATE access_tokens 
@@ -196,4 +205,30 @@ export const updateBuyerProfile = async (
     if (!updated) throw new Error('Profile update failed.');
  
     return updated;
+};
+
+export const verifyMagicLinkAndGetBuyer = async (
+    token: string
+): Promise<MagicLinkBuyer> => {
+    let buyerId: string;
+ 
+    try {
+        ({ buyerId } = verifyMagicLinkToken(token));
+    } catch {
+        throw new Error('Invalid or expired link');
+    }
+ 
+    const { rows: [user] } = await pool.query<{
+        id: string;
+        email: string;
+        role: "creator" | "buyer" | "admin" | "guest" | null;
+        email_verified: boolean;
+    }>(
+        `SELECT id, email, role, email_verified FROM users WHERE id = $1`,
+        [buyerId]
+    );
+ 
+    if (!user) throw new Error('Invalid or expired link');
+ 
+    return user;
 };

@@ -10,6 +10,7 @@ import {
   completeOnboardingService,
 } from "../services/auth.service.js";
 import { ACCESS_COOKIE_OPTIONS, REFRESH_COOKIE_OPTIONS, COOKIE_CLEAR_OPTIONS } from "../utils/cookie.js";
+import { verifyEmailToken } from "../services/emailVerification.service.js";
 
 type SignupBody = SignupInput;
 type LoginBody = LoginInput;
@@ -83,6 +84,30 @@ export const login = async (
     }
     console.error(err);
     return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+export const confirmEmailVerification = async (req: Request, res: Response) => {
+  try {
+    const token = req.body.token as string | undefined;
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Token is required" });
+    }
+
+    const { accessToken } = await verifyEmailToken(token);
+
+    res.cookie("accessToken", accessToken, ACCESS_COOKIE_OPTIONS);
+
+    return res.status(200).json({
+      success: true,
+      message: "Email verified successfully",
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "Invalid or expired verification token") {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    console.error("confirmEmailVerification error:", err);
+    return res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
 
