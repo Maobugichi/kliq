@@ -14,7 +14,7 @@ const BASE = {
   httpOnly: true,
   secure: isShared,
   sameSite: "lax" as const,
-  //...(isShared && { domain: ".creatorlock.co" }),
+  ...(isShared && { domain: ".creatorlock.co" }),
 };
 
 export const ACCESS_COOKIE_OPTIONS = {
