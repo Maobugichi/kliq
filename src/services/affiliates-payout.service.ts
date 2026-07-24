@@ -433,28 +433,20 @@ export const listAffiliatePayouts = async (
   return rows;
 };
 
-// ─── Admin views payout queue ───────────────────────────────────────────────
-// status is optional — omit to see all payouts across every status,
-// or pass one of the AffiliatePayout['status'] values to filter the queue
-// (e.g. 'pending' to see what's awaiting approval).
-
 export const listAffiliatePayoutsAdmin = async (
   status?: AffiliatePayout["status"]
-): Promise<AffiliatePayout[]> => {
-  if (status) {
-    const { rows } = await pool.query<AffiliatePayout>(
-      `SELECT * FROM affiliate_payouts
-       WHERE status = $1
-       ORDER BY requested_at DESC`,
-      [status]
-    );
-    return rows;
-  }
-
-  const { rows } = await pool.query<AffiliatePayout>(
-    `SELECT * FROM affiliate_payouts
-     ORDER BY requested_at DESC`
+): Promise<(AffiliatePayout & { affiliate_name: string; affiliate_email: string })[]> => {
+  const { rows } = await pool.query(`
+    SELECT
+      ap.*,
+      u.name  AS affiliate_name,
+      u.email AS affiliate_email
+    FROM affiliate_payouts ap
+    JOIN users u ON u.id = ap.affiliate_user_id
+    ${status ? 'WHERE ap.status = $1' : ''}
+    ORDER BY ap.requested_at DESC`,
+    status ? [status] : []
   );
-
+ 
   return rows;
 };

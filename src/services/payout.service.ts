@@ -12,9 +12,9 @@ import {
 
 export { resolveBankAccount, getBankList };
 
-const MINIMUM_PAYOUT_CENTS = 500_000; // ₦5,000
+const MINIMUM_PAYOUT_CENTS = 500_000; 
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+
 
 export interface Payout {
   id: string;
@@ -265,7 +265,7 @@ export const processPayout = async (payoutId: string, adminId: string): Promise<
     const { rows: [lockedPayout] } = await client.query<Payout>(
       `SELECT p.*, cp.id AS profile_id
        FROM payouts p
-       JOIN creator_profiles cp ON cp.user_id = p.creator_id
+       JOIN creator_profiles cp ON cp.id = p.creator_id
        WHERE p.id = $1 AND p.status = 'approved'
        FOR UPDATE OF p`,
       [payoutId]
@@ -292,6 +292,7 @@ export const processPayout = async (payoutId: string, adminId: string): Promise<
     payout = lockedPayout;
   } catch (err) {
     await client.query("ROLLBACK");
+    console.log(err)
     throw err;
   } finally {
     client.release();
@@ -337,10 +338,35 @@ export const processPayout = async (payoutId: string, adminId: string): Promise<
     if (!updated) throw new Error("Failed to store transfer code");
     return updated;
   } catch (err) {
-    await pool.query(
-      `UPDATE payouts SET failure_reason = $1 WHERE id = $2`,
-      [(err as Error).message, payoutId]
-    );
+    const message = (err as Error).message;
+
+    const revertClient = await pool.connect();
+    try {
+      await revertClient.query("BEGIN");
+
+      await revertClient.query(
+        `UPDATE payouts
+         SET status = 'approved', failure_reason = $1
+         WHERE id = $2 AND status = 'processing'`,
+        [message, payoutId]
+      );
+
+      await recordPayoutEvent(
+        revertClient,
+        payoutId,
+        "reverted",
+        `Transfer failed before initiation — reverted to approved for retry: ${message}`,
+        adminId
+      );
+
+      await revertClient.query("COMMIT");
+    } catch (revertErr) {
+      await revertClient.query("ROLLBACK");
+      console.error(`[processPayout] Failed to revert payout ${payoutId} after transfer error:`, revertErr);
+    } finally {
+      revertClient.release();
+    }
+
     throw err;
   }
 };
@@ -535,12 +561,22 @@ export const getCreatorBalance = async (
   return calculateCreatorBalance(pool, profile.id, feeBasisPoints);
 };
 
-export const getAllPayouts = async (status?: string): Promise<Payout[]> => {
-  const { rows } = await pool.query<Payout>(
-    status
-      ? `SELECT * FROM payouts WHERE status = $1 ORDER BY requested_at DESC`
-      : `SELECT * FROM payouts ORDER BY requested_at DESC`,
+export const getAllPayouts = async (status?: string): Promise<
+  (Payout & { creator_name: string; creator_email: string; store_slug: string })[]
+> => {
+  const { rows } = await pool.query(`
+    SELECT
+      p.*,
+      u.name  AS creator_name,
+      u.email AS creator_email,
+      cp.store_slug AS store_slug
+    FROM payouts p
+    JOIN creator_profiles cp ON cp.id = p.creator_id
+    JOIN users u ON u.id = cp.user_id
+    ${status ? 'WHERE p.status = $1' : ''}
+    ORDER BY p.requested_at DESC`,
     status ? [status] : []
   );
+ 
   return rows;
 };

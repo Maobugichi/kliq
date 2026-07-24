@@ -294,8 +294,17 @@ export const sendAffiliateConversionEmail = async (
   totalEarnedCents: number
 ): Promise<void> => {
   const dashboardUrl = `${process.env.FRONTEND_URL}/dashboard/affiliate`;
-  const commission = (commissionCents / 100).toFixed(2);
-  const totalEarned = (totalEarnedCents / 100).toFixed(2);
+  
+
+  const commission = new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+  }).format(commissionCents / 100);
+
+  const totalEarned = new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+  }).format(totalEarnedCents / 100);
 
   const html = baseLayout(`
     ${heading("💸", "You just earned a commission", "CreatorLock")}
@@ -315,7 +324,7 @@ export const sendAffiliateConversionEmail = async (
         padding:14px;
         text-align:center;
       ">
-        <p style="margin:0;color:#FF5C00;font-size:22px;font-weight:700;">$${commission}</p>
+        <p style="margin:0;color:#FF5C00;font-size:22px;font-weight:700;">${commission}</p>
         <p style="margin:4px 0 0;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">This sale</p>
       </div>
       <div style="
@@ -326,7 +335,7 @@ export const sendAffiliateConversionEmail = async (
         padding:14px;
         text-align:center;
       ">
-        <p style="margin:0;color:#fff;font-size:22px;font-weight:700;">$${totalEarned}</p>
+        <p style="margin:0;color:#fff;font-size:22px;font-weight:700;">${totalEarned}</p>
         <p style="margin:4px 0 0;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">Total earned</p>
       </div>
     </div>
@@ -338,7 +347,7 @@ export const sendAffiliateConversionEmail = async (
 
   await sendEmail({
     to,
-    subject: `You earned $${commission} — ${productTitle} sale via your link`,
+    subject: `You earned ${commission} — ${productTitle} sale via your link`,
     html,
   });
 };

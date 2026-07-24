@@ -20,6 +20,6 @@ export const createRateLimiter = ({
         }
     })
 
-export const strictLimiter  = createRateLimiter({ max: 5,  windowMinutes: 15 }); // sign-up, waitlist
-export const defaultLimiter = createRateLimiter({ max: 30, windowMinutes: 15 }); // general API
-export const looseLimiter   = createRateLimiter({ max: 60, windowMinutes: 15 }); // read-heavy endpoints
+export const strictLimiter  = createRateLimiter({ max: 5,  windowMinutes: 15 }); 
+export const defaultLimiter = createRateLimiter({ max: 30, windowMinutes: 15 }); 
+export const looseLimiter   = createRateLimiter({ max: 60, windowMinutes: 15 }); 

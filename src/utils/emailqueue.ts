@@ -57,8 +57,8 @@ export type EmailJobData =
         to: string;
         buyerName: string;
         creatorName: string;
-        template: BuyerEmailTemplate; // which template to render
-        subject: string;              // creator-authored or pre-filled default
+        template: BuyerEmailTemplate; 
+        subject: string;             
         body: string;                 // editable copy for all templates
         couponCode?: string;          // only used by "discount" template
         productTitle?: string;        // only used by "new_product" template

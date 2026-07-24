@@ -1,10 +1,20 @@
-const isProd = process.env.NODE_ENV === "production";
+type CookieMode = "local" | "shared";
+
+const cookieMode = (process.env.COOKIE_MODE as CookieMode) ?? "local";
+
+if (cookieMode !== "local" && cookieMode !== "shared") {
+  throw new Error(
+    `Invalid COOKIE_MODE "${cookieMode}" — must be "local" or "shared"`
+  );
+}
+
+const isShared = cookieMode === "shared";
 
 const BASE = {
   httpOnly: true,
-  secure: isProd,
-  sameSite: isProd ? ("none" as const) : ("lax" as const),
-  ...(isProd && { domain: ".outray.app" }),
+  secure: isShared,
+  sameSite: isShared ? ("none" as const) : ("lax" as const),
+  ...(isShared && { domain: ".outray.app" }),
 };
 
 export const ACCESS_COOKIE_OPTIONS = {

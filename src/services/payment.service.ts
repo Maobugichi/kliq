@@ -283,12 +283,10 @@ export const handlePaystackWebhook = async (
     return;
   }
 
-  console.log(`[webhook] ② found pending order: ${order.id}, buyer_id: ${order.buyer_id}, amount: ${order.amount_cents}, currency: ${order.currency}`);
+  
 
   const verifiedTx = await verifyTransaction(ref);
   const { data: verifiedData } = verifiedTx;
-
-  console.log(`[webhook] ③ paystack verification — status: ${verifiedData.status}, amount: ${verifiedData.amount}, currency: ${verifiedData.currency}`);
 
   if (verifiedData.status !== "success") {
     throw new Error(`Paystack verification failed for ${ref}`);
@@ -342,7 +340,7 @@ export const handlePaystackWebhook = async (
 
   try {
     await client.query("BEGIN");
-    console.log(`[webhook] ⑦ transaction BEGIN`);
+    
 
     const { rows: [lockedOrder] } = await client.query(
       `SELECT id FROM orders WHERE id = $1 FOR UPDATE`,
@@ -389,7 +387,7 @@ export const handlePaystackWebhook = async (
     }
 
     await client.query("COMMIT");
-    console.log(`[webhook] ⑩ COMMIT ✓ — order ${order.id} marked paid`);
+    
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(`[webhook] ⑩ transaction error, ROLLBACK:`, err);
