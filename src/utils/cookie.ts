@@ -13,8 +13,8 @@ const isShared = cookieMode === "shared";
 const BASE = {
   httpOnly: true,
   secure: isShared,
-  sameSite: isShared ? ("none" as const) : ("lax" as const),
-  ...(isShared && { domain: ".outray.app" }),
+  sameSite: "lax" as const,
+  //...(isShared && { domain: ".creatorlock.co" }),
 };
 
 export const ACCESS_COOKIE_OPTIONS = {
